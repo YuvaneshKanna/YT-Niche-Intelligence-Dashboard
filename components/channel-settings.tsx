@@ -1,6 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -14,6 +15,7 @@ import type { Channel, VerifiedStatus, TrackingStatus } from "@/lib/constants"
 
 interface ChannelSettingsProps {
   channel: Channel
+  onSubCategoryChange: (value: string) => void
   onVerifiedChange: (value: VerifiedStatus) => void
   onTrackingChange: (value: TrackingStatus) => void
   onSave: () => void
@@ -21,22 +23,26 @@ interface ChannelSettingsProps {
 
 export function ChannelSettings({
   channel,
+  onSubCategoryChange,
   onVerifiedChange,
   onTrackingChange,
   onSave,
 }: ChannelSettingsProps) {
   return (
-    <div className="border-t border-sidebar-border bg-sidebar p-4">
+    <div className="flex-shrink-0 border-t border-sidebar-border bg-sidebar p-4">
       <h3 className="font-semibold text-sidebar-foreground mb-3">
         Channel Settings
       </h3>
       
       <div className="space-y-3">
-        <div>
-          <Label className="text-xs text-muted-foreground">Sub-Category</Label>
-          <p className="text-sm text-sidebar-foreground mt-0.5">
-            {channel.subCategory}
-          </p>
+        <div className="space-y-1.5">
+          <Label htmlFor="sub-category" className="text-xs text-muted-foreground">Sub-Category</Label>
+          <Input
+            id="sub-category"
+            value={channel.subCategory}
+            onChange={(e) => onSubCategoryChange(e.target.value)}
+            className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground"
+          />
         </div>
 
         <Separator className="bg-sidebar-border" />

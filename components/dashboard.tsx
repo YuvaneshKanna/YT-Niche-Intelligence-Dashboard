@@ -41,6 +41,14 @@ export function Dashboard() {
 
   const selectedChannel = channelsState.find((c) => c.id === selectedChannelId)!
 
+  const handleSubCategoryChange = (value: string) => {
+    setChannelsState((prev) =>
+      prev.map((c) =>
+        c.id === selectedChannelId ? { ...c, subCategory: value } : c
+      )
+    )
+  }
+
   const handleVerifiedChange = (value: VerifiedStatus) => {
     setChannelsState((prev) =>
       prev.map((c) =>
@@ -117,9 +125,10 @@ export function Dashboard() {
           </div>
         </ScrollArea>
 
-        {/* Channel Settings */}
+        {/* Channel Settings - Sticky at bottom */}
         <ChannelSettings
           channel={selectedChannel}
+          onSubCategoryChange={handleSubCategoryChange}
           onVerifiedChange={handleVerifiedChange}
           onTrackingChange={handleTrackingChange}
           onSave={handleSave}
