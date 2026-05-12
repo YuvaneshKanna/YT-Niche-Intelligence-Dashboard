@@ -27,13 +27,18 @@ export function VideoCard({ video, onClick }: VideoCardProps) {
           {video.type === "short" ? "0:60" : video.type === "live" ? "LIVE" : "12:34"}
         </div>
       </div>
-      <div className="mt-2">
-        <h3 className="text-sm font-medium text-foreground line-clamp-2 leading-tight">
+      <div className="mt-2.5 px-0.5">
+        <h3 className="text-sm font-medium text-foreground line-clamp-2 leading-snug">
           {video.title}
         </h3>
-        <p className="text-xs text-muted-foreground mt-1">
-          {video.views} • {video.uploadDate}
-        </p>
+        <div className="mt-1.5 space-y-0.5">
+          <p className="text-xs text-muted-foreground">
+            {video.views}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {video.uploadDate}
+          </p>
+        </div>
       </div>
     </button>
   )
