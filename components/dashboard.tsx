@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { ChannelCard } from "@/components/channel-card"
 import { ChannelSettings } from "@/components/channel-settings"
 import { VideoPlayer } from "@/components/video-player"
@@ -28,6 +27,11 @@ export function Dashboard() {
   const [currentVideoId, setCurrentVideoId] = useState("dQw4w9WgXcQ")
   const [activeTab, setActiveTab] = useState("videos")
   const [isPlayerFrozen, setIsPlayerFrozen] = useState(false)
+
+  // Channel list: approximate height = p-2 (padding 8px * 2) + 3 cards * (120px height + 4px gap)
+  // Each card is roughly: p-3 + 5 lines of text + badges = ~120px
+  // With gap-y-1 (4px): 120 + 4 = 124px per card
+  const CHANNEL_CARD_HEIGHT = 124
 
   const filteredChannels = useMemo(() => {
     if (!searchQuery.trim()) return channelsState
@@ -140,8 +144,8 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Channel List - SCROLLABLE ONLY */}
-        <ScrollArea className="flex-1 overflow-hidden">
+        {/* Channel List - SCROLLABLE with exactly 3 cards visible */}
+        <div style={{ maxHeight: `${CHANNEL_CARD_HEIGHT * 3}px`, overflowY: 'auto' }} className="flex-1">
           <div className="p-2 space-y-1">
             {filteredChannels.map((channel) => (
               <ChannelCard
@@ -157,7 +161,7 @@ export function Dashboard() {
               </p>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </aside>
 
       {/* Main Content */}
@@ -203,8 +207,8 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Video Player Section */}
-        <div className={isPlayerFrozen ? "flex-shrink-0 px-6 pt-4 sticky top-0 z-10 bg-background pb-4" : "flex-shrink-0 px-6 pt-4"}>
+        {/* Video Player Section - Only sticky when frozen */}
+        <div className={`flex-shrink-0 px-6 pt-4 pb-4 ${isPlayerFrozen ? 'sticky top-0 z-10 bg-background border-b border-border' : ''}`}>
           <div className="relative">
             <VideoPlayer videoId={currentVideoId} />
             <Button
