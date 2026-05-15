@@ -22,14 +22,22 @@ export function ChannelCard({ channel, isActive, onClick }: ChannelCardProps) {
           : "border-transparent"
       )}
     >
-      <p className="font-semibold text-sidebar-foreground truncate">
+      {/* Row 1: Channel name */}
+      <p className="font-semibold text-sidebar-foreground truncate text-sm">
         {channel.handle}
       </p>
-      <div className="flex items-center gap-2 mt-1.5">
+
+      {/* Row 2: @handle - removed as it's the same as above, showing name without @ instead */}
+      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+        {channel.handle.replace("@", "")}
+      </p>
+
+      {/* Row 3: Type badge + Category badge */}
+      <div className="flex items-center gap-2 mt-2">
         <Badge
           variant="secondary"
           className={cn(
-            "text-xs px-2 py-0.5",
+            "text-xs px-2 py-0.5 flex-shrink-0",
             channel.type === "Shorts"
               ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
               : "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
@@ -39,13 +47,20 @@ export function ChannelCard({ channel, isActive, onClick }: ChannelCardProps) {
         </Badge>
         <Badge
           variant="secondary"
-          className="text-xs px-2 py-0.5 bg-primary/20 text-primary hover:bg-primary/30"
+          className="text-xs px-2 py-0.5 bg-primary/20 text-primary hover:bg-primary/30 flex-shrink-0"
         >
           {channel.category}
         </Badge>
       </div>
-      <p className="text-xs text-muted-foreground mt-1.5">
-        Posted by {channel.postedBy}
+
+      {/* Row 4: Sub-Category in small muted italic text */}
+      <p className="text-xs text-muted-foreground italic mt-1.5">
+        {channel.subCategory}
+      </p>
+
+      {/* Row 5: Shared on date */}
+      <p className="text-xs text-muted-foreground mt-1">
+        Shared on {channel.sharedOn}
       </p>
     </button>
   )
