@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { Search, ExternalLink, Youtube } from "lucide-react"
+import { Search, ExternalLink, Youtube, Pin } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -27,6 +27,7 @@ export function Dashboard() {
   const [channelsState, setChannelsState] = useState<Channel[]>(initialChannels)
   const [currentVideoId, setCurrentVideoId] = useState("dQw4w9WgXcQ")
   const [activeTab, setActiveTab] = useState("videos")
+  const [isPlayerFrozen, setIsPlayerFrozen] = useState(false)
 
   const filteredChannels = useMemo(() => {
     if (!searchQuery.trim()) return channelsState
@@ -202,9 +203,19 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Video Player - FIXED */}
-        <div className="flex-shrink-0 px-6 pt-4">
-          <VideoPlayer videoId={currentVideoId} />
+        {/* Video Player Section */}
+        <div className={isPlayerFrozen ? "flex-shrink-0 px-6 pt-4 sticky top-0 z-10 bg-background pb-4" : "flex-shrink-0 px-6 pt-4"}>
+          <div className="relative">
+            <VideoPlayer videoId={currentVideoId} />
+            <Button
+              onClick={() => setIsPlayerFrozen(!isPlayerFrozen)}
+              size="sm"
+              className="absolute top-3 right-3 gap-1.5 bg-black/60 hover:bg-black/80 text-white border-0 rounded-full h-8 px-3 text-xs"
+            >
+              <Pin className={`w-3 h-3 ${isPlayerFrozen ? "fill-current" : ""}`} />
+              {isPlayerFrozen ? "Unfreeze" : "Freeze"}
+            </Button>
+          </div>
         </div>
 
         {/* Video Tabs - FIXED */}
@@ -237,14 +248,14 @@ export function Dashboard() {
         </div>
 
         {/* Video Grid - SCROLLABLE ONLY */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-6 max-w-6xl mx-auto">
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="p-4 max-w-6xl mx-auto">
             <Tabs
               value={activeTab}
               onValueChange={setActiveTab}
             >
               <TabsContent value="videos" className="mt-0">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 gap-3">
                   {videos.map((video) => (
                     <VideoCard
                       key={video.id}
@@ -256,7 +267,7 @@ export function Dashboard() {
               </TabsContent>
 
               <TabsContent value="shorts" className="mt-0">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 gap-3">
                   {shorts.map((video) => (
                     <VideoCard
                       key={video.id}
@@ -268,7 +279,7 @@ export function Dashboard() {
               </TabsContent>
 
               <TabsContent value="live" className="mt-0">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 gap-3">
                   {liveStreams.map((video) => (
                     <VideoCard
                       key={video.id}

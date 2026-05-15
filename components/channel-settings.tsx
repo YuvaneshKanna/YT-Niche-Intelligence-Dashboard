@@ -113,60 +113,60 @@ export function ChannelSettings({
   if (!isEditMode) {
     // VIEW MODE
     return (
-      <div className="flex-shrink-0 border-b border-sidebar-border bg-sidebar p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-sidebar-foreground">
+      <div className="flex-shrink-0 border-b border-sidebar-border bg-sidebar px-3 py-2">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-sidebar-foreground">
             Channel Settings
           </h3>
           <Button
             onClick={handleEdit}
             variant="outline"
             size="sm"
-            className="border-primary text-primary hover:bg-primary/10 h-8"
+            className="border-primary text-primary hover:bg-primary/10 h-7 text-xs px-2"
           >
             Edit
           </Button>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-1.5">
           {/* Category - Read Only */}
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Category</Label>
-            <p className="text-sm text-sidebar-foreground py-1.5 px-2 bg-sidebar-accent rounded">
+          <div className="space-y-0.5">
+            <Label className="text-[11px] text-muted-foreground">Category</Label>
+            <p className="text-xs text-sidebar-foreground py-1 px-2 bg-sidebar-accent rounded">
               {displayValue(channel.category)}
             </p>
           </div>
 
           {/* Sub-Category - Read Only */}
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Sub-Category</Label>
-            <p className="text-sm text-sidebar-foreground py-1.5 px-2 bg-sidebar-accent rounded">
+          <div className="space-y-0.5">
+            <Label className="text-[11px] text-muted-foreground">Sub-Category</Label>
+            <p className="text-xs text-sidebar-foreground py-1 px-2 bg-sidebar-accent rounded">
               {displayValue(channel.subCategory)}
             </p>
           </div>
 
           {/* Type - Read Only */}
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Type</Label>
-            <p className="text-sm text-sidebar-foreground py-1.5 px-2 bg-sidebar-accent rounded">
+          <div className="space-y-0.5">
+            <Label className="text-[11px] text-muted-foreground">Type</Label>
+            <p className="text-xs text-sidebar-foreground py-1 px-2 bg-sidebar-accent rounded">
               {displayValue(channel.contentType || "Long-Form")}
             </p>
           </div>
 
-          <Separator className="bg-sidebar-border" />
+          <Separator className="bg-sidebar-border my-1" />
 
           {/* Tracking - Read Only */}
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Tracking</Label>
-            <p className="text-sm text-sidebar-foreground py-1.5 px-2 bg-sidebar-accent rounded">
+          <div className="space-y-0.5">
+            <Label className="text-[11px] text-muted-foreground">Tracking</Label>
+            <p className="text-xs text-sidebar-foreground py-1 px-2 bg-sidebar-accent rounded">
               {displayValue(channel.tracking)}
             </p>
           </div>
 
           {/* Verified / Remarks - Read Only */}
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Verified / Remarks</Label>
-            <p className="text-sm text-sidebar-foreground py-1.5 px-2 bg-sidebar-accent rounded min-h-[48px] flex items-start pt-2">
+          <div className="space-y-0.5">
+            <Label className="text-[11px] text-muted-foreground">Verified / Remarks</Label>
+            <p className="text-xs text-sidebar-foreground py-1 px-2 bg-sidebar-accent rounded min-h-[28px] flex items-start pt-1">
               {displayValue(channel.verified)}
             </p>
           </div>
@@ -177,17 +177,17 @@ export function ChannelSettings({
 
   // EDIT MODE
   return (
-    <div className="flex-shrink-0 border-b border-sidebar-border bg-sidebar p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-sidebar-foreground">
+    <div className="flex-shrink-0 border-b border-sidebar-border bg-sidebar px-3 py-2">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-sidebar-foreground">
           Channel Settings
         </h3>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-1.5">
         {/* Category Searchable Dropdown */}
-        <div className="space-y-1.5">
-          <Label htmlFor="category" className="text-xs text-muted-foreground">
+        <div className="space-y-0.5">
+          <Label htmlFor="category" className="text-[11px] text-muted-foreground">
             Category
           </Label>
           <SearchableDropdown
@@ -201,8 +201,8 @@ export function ChannelSettings({
         </div>
 
         {/* Sub-Category Searchable Dropdown */}
-        <div className="space-y-1.5">
-          <Label htmlFor="sub-category" className="text-xs text-muted-foreground">
+        <div className="space-y-0.5">
+          <Label htmlFor="sub-category" className="text-[11px] text-muted-foreground">
             Sub-Category
           </Label>
           <SearchableDropdown
@@ -216,8 +216,8 @@ export function ChannelSettings({
         </div>
 
         {/* Type Dropdown */}
-        <div className="space-y-1.5">
-          <Label htmlFor="type" className="text-xs text-muted-foreground">
+        <div className="space-y-0.5">
+          <Label htmlFor="type" className="text-[11px] text-muted-foreground">
             Type
           </Label>
           <Select
@@ -228,7 +228,7 @@ export function ChannelSettings({
           >
             <SelectTrigger
               id="type"
-              className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground"
+              className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground h-7 text-xs"
             >
               <SelectValue />
             </SelectTrigger>
@@ -242,11 +242,11 @@ export function ChannelSettings({
           </Select>
         </div>
 
-        <Separator className="bg-sidebar-border" />
+        <Separator className="bg-sidebar-border my-1" />
 
         {/* Tracking Dropdown */}
-        <div className="space-y-1.5">
-          <Label htmlFor="tracking" className="text-xs text-muted-foreground">
+        <div className="space-y-0.5">
+          <Label htmlFor="tracking" className="text-[11px] text-muted-foreground">
             Tracking
           </Label>
           <Select
@@ -257,7 +257,7 @@ export function ChannelSettings({
           >
             <SelectTrigger
               id="tracking"
-              className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground"
+              className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground h-7 text-xs"
             >
               <SelectValue />
             </SelectTrigger>
@@ -269,8 +269,8 @@ export function ChannelSettings({
         </div>
 
         {/* Verified / Remarks Textarea */}
-        <div className="space-y-1.5">
-          <Label htmlFor="verified" className="text-xs text-muted-foreground">
+        <div className="space-y-0.5">
+          <Label htmlFor="verified" className="text-[11px] text-muted-foreground">
             Verified / Remarks
           </Label>
           <textarea
@@ -280,22 +280,22 @@ export function ChannelSettings({
               setTempValues((prev) => ({ ...prev, verified: e.target.value }))
             }
             placeholder="Add any remarks or notes..."
-            rows={3}
-            className="w-full px-3 py-2 text-sm rounded-md bg-sidebar-accent border border-sidebar-border text-sidebar-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            rows={2}
+            className="w-full px-2 py-1 text-xs rounded-md bg-sidebar-accent border border-sidebar-border text-sidebar-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
 
-        <div className="flex gap-2 mt-3">
+        <div className="flex gap-1.5 mt-2">
           <Button
             onClick={handleSave}
-            className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground"
+            className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground h-7 text-xs"
           >
-            Save Changes
+            Save
           </Button>
           <Button
             onClick={handleCancel}
             variant="outline"
-            className="flex-1 border-muted text-muted-foreground hover:bg-muted/10"
+            className="flex-1 border-muted text-muted-foreground hover:bg-muted/10 h-7 text-xs"
           >
             Cancel
           </Button>
