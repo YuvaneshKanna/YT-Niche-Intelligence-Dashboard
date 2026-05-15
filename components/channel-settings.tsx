@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { SearchableDropdown } from "@/components/searchable-dropdown"
-import type { Channel, TrackingStatus, ContentType } from "@/lib/constants"
+import type { Channel, TrackingStatus, ContentType, NicheCategory } from "@/lib/constants"
 
 const CATEGORIES = [
   "Entertainment",
@@ -195,7 +195,7 @@ export function ChannelSettings({
             options={CATEGORIES}
             placeholder="Select category..."
             onSelect={(value) =>
-              setTempValues((prev) => ({ ...prev, category: value }))
+              setTempValues((prev) => ({ ...prev, category: value as NicheCategory }))
             }
           />
         </div>
