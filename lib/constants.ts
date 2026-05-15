@@ -1,4 +1,5 @@
 export type ChannelType = "Shorts" | "Long-Form"
+export type ContentType = "Long-Form" | "Shorts" | "Both"
 export type NicheCategory = "Tech" | "Finance" | "Gaming" | "Lifestyle" | "Education" | "Entertainment" | "Fitness" | "Food" | "Travel" | "Music"
 export type TrackingStatus = "YES" | "NO"
 
@@ -6,6 +7,7 @@ export interface Channel {
   id: string
   handle: string
   type: ChannelType
+  contentType?: ContentType
   category: NicheCategory
   subCategory: string
   verified: string
@@ -24,21 +26,21 @@ export interface Video {
 }
 
 export const channels: Channel[] = [
-  { id: "1", handle: "@MrBeast", type: "Long-Form", category: "Entertainment", subCategory: "Challenges", verified: "", tracking: "YES", sharedOn: "Jan 15, 2025" },
-  { id: "2", handle: "@MKBHD", type: "Long-Form", category: "Tech", subCategory: "Reviews", verified: "", tracking: "YES", sharedOn: "Jan 12, 2025" },
-  { id: "3", handle: "@GrahamStephan", type: "Long-Form", category: "Finance", subCategory: "Personal Finance", verified: "", tracking: "YES", sharedOn: "Jan 10, 2025" },
-  { id: "4", handle: "@PewDiePie", type: "Long-Form", category: "Gaming", subCategory: "Let's Play", verified: "", tracking: "NO", sharedOn: "Jan 8, 2025" },
-  { id: "5", handle: "@KhaibyLame", type: "Shorts", category: "Entertainment", subCategory: "Comedy", verified: "", tracking: "YES", sharedOn: "Jan 5, 2025" },
-  { id: "6", handle: "@LexFridman", type: "Long-Form", category: "Education", subCategory: "Podcasts", verified: "", tracking: "YES", sharedOn: "Jan 3, 2025" },
-  { id: "7", handle: "@FitnessBlender", type: "Long-Form", category: "Fitness", subCategory: "Workouts", verified: "", tracking: "YES", sharedOn: "Dec 28, 2024" },
-  { id: "8", handle: "@BabishCulinary", type: "Long-Form", category: "Food", subCategory: "Cooking", verified: "", tracking: "NO", sharedOn: "Dec 25, 2024" },
-  { id: "9", handle: "@NasDaily", type: "Shorts", category: "Travel", subCategory: "Vlogs", verified: "", tracking: "YES", sharedOn: "Dec 20, 2024" },
-  { id: "10", handle: "@LinusTech", type: "Long-Form", category: "Tech", subCategory: "Hardware", verified: "", tracking: "YES", sharedOn: "Dec 15, 2024" },
-  { id: "11", handle: "@TheBodyCoach", type: "Shorts", category: "Fitness", subCategory: "Quick Workouts", verified: "", tracking: "NO", sharedOn: "Dec 10, 2024" },
-  { id: "12", handle: "@TomScott", type: "Long-Form", category: "Education", subCategory: "Science", verified: "", tracking: "YES", sharedOn: "Dec 5, 2024" },
-  { id: "13", handle: "@DudePerfect", type: "Long-Form", category: "Entertainment", subCategory: "Sports", verified: "", tracking: "YES", sharedOn: "Nov 30, 2024" },
-  { id: "14", handle: "@Veritasium", type: "Long-Form", category: "Education", subCategory: "Science", verified: "", tracking: "YES", sharedOn: "Nov 25, 2024" },
-  { id: "15", handle: "@RyanTrahan", type: "Shorts", category: "Lifestyle", subCategory: "Challenges", verified: "", tracking: "NO", sharedOn: "Nov 20, 2024" },
+  { id: "1", handle: "@MrBeast", type: "Long-Form", contentType: "Long-Form", category: "Entertainment", subCategory: "Challenges", verified: "", tracking: "YES", sharedOn: "Jan 15, 2025" },
+  { id: "2", handle: "@MKBHD", type: "Long-Form", contentType: "Long-Form", category: "Tech", subCategory: "Reviews", verified: "", tracking: "YES", sharedOn: "Jan 12, 2025" },
+  { id: "3", handle: "@GrahamStephan", type: "Long-Form", contentType: "Long-Form", category: "Finance", subCategory: "Personal Finance", verified: "", tracking: "YES", sharedOn: "Jan 10, 2025" },
+  { id: "4", handle: "@PewDiePie", type: "Long-Form", contentType: "Both", category: "Gaming", subCategory: "Let's Play", verified: "", tracking: "NO", sharedOn: "Jan 8, 2025" },
+  { id: "5", handle: "@KhaibyLame", type: "Shorts", contentType: "Shorts", category: "Entertainment", subCategory: "Comedy", verified: "", tracking: "YES", sharedOn: "Jan 5, 2025" },
+  { id: "6", handle: "@LexFridman", type: "Long-Form", contentType: "Long-Form", category: "Education", subCategory: "Podcasts", verified: "", tracking: "YES", sharedOn: "Jan 3, 2025" },
+  { id: "7", handle: "@FitnessBlender", type: "Long-Form", contentType: "Long-Form", category: "Fitness", subCategory: "Workouts", verified: "", tracking: "YES", sharedOn: "Dec 28, 2024" },
+  { id: "8", handle: "@BabishCulinary", type: "Long-Form", contentType: "Both", category: "Food", subCategory: "Cooking", verified: "", tracking: "NO", sharedOn: "Dec 25, 2024" },
+  { id: "9", handle: "@NasDaily", type: "Shorts", contentType: "Shorts", category: "Travel", subCategory: "Vlogs", verified: "", tracking: "YES", sharedOn: "Dec 20, 2024" },
+  { id: "10", handle: "@LinusTech", type: "Long-Form", contentType: "Long-Form", category: "Tech", subCategory: "Hardware", verified: "", tracking: "YES", sharedOn: "Dec 15, 2024" },
+  { id: "11", handle: "@TheBodyCoach", type: "Shorts", contentType: "Shorts", category: "Fitness", subCategory: "Quick Workouts", verified: "", tracking: "NO", sharedOn: "Dec 10, 2024" },
+  { id: "12", handle: "@TomScott", type: "Long-Form", contentType: "Long-Form", category: "Education", subCategory: "Science", verified: "", tracking: "YES", sharedOn: "Dec 5, 2024" },
+  { id: "13", handle: "@DudePerfect", type: "Long-Form", contentType: "Long-Form", category: "Entertainment", subCategory: "Sports", verified: "", tracking: "YES", sharedOn: "Nov 30, 2024" },
+  { id: "14", handle: "@Veritasium", type: "Long-Form", contentType: "Long-Form", category: "Education", subCategory: "Science", verified: "", tracking: "YES", sharedOn: "Nov 25, 2024" },
+  { id: "15", handle: "@RyanTrahan", type: "Shorts", contentType: "Both", category: "Lifestyle", subCategory: "Challenges", verified: "", tracking: "NO", sharedOn: "Nov 20, 2024" },
 ]
 
 export const videos: Video[] = [

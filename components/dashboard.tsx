@@ -17,8 +17,8 @@ import {
   shorts,
   liveStreams,
   type Channel,
-  type VerifiedStatus,
   type TrackingStatus,
+  type ContentType,
 } from "@/lib/constants"
 
 export function Dashboard() {
@@ -53,6 +53,14 @@ export function Dashboard() {
     setChannelsState((prev) =>
       prev.map((c) =>
         c.id === selectedChannelId ? { ...c, subCategory: value } : c
+      )
+    )
+  }
+
+  const handleContentTypeChange = (value: ContentType) => {
+    setChannelsState((prev) =>
+      prev.map((c) =>
+        c.id === selectedChannelId ? { ...c, contentType: value } : c
       )
     )
   }
@@ -110,6 +118,7 @@ export function Dashboard() {
           channel={selectedChannel}
           onCategoryChange={handleCategoryChange}
           onSubCategoryChange={handleSubCategoryChange}
+          onContentTypeChange={handleContentTypeChange}
           onVerifiedChange={handleVerifiedChange}
           onTrackingChange={handleTrackingChange}
           onSave={handleSave}
