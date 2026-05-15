@@ -28,11 +28,6 @@ export function Dashboard() {
   const [activeTab, setActiveTab] = useState("videos")
   const [isPlayerFrozen, setIsPlayerFrozen] = useState(false)
 
-  // Channel list: approximate height = p-2 (padding 8px * 2) + 3 cards * (120px height + 4px gap)
-  // Each card is roughly: p-3 + 5 lines of text + badges = ~120px
-  // With gap-y-1 (4px): 120 + 4 = 124px per card
-  const CHANNEL_CARD_HEIGHT = 124
-
   const filteredChannels = useMemo(() => {
     if (!searchQuery.trim()) return channelsState
     const query = searchQuery.toLowerCase()
@@ -144,8 +139,8 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Channel List - SCROLLABLE with exactly 3 cards visible */}
-        <div style={{ maxHeight: `${CHANNEL_CARD_HEIGHT * 3}px`, overflowY: 'auto' }} className="flex-1">
+        {/* Channel List - SCROLLABLE, fills remaining space */}
+        <div className="flex-1 overflow-y-auto">
           <div className="p-2 space-y-1">
             {filteredChannels.map((channel) => (
               <ChannelCard
@@ -209,7 +204,7 @@ export function Dashboard() {
 
         {/* Video Player Section - Only sticky when frozen */}
         <div className={`flex-shrink-0 px-6 pt-4 pb-4 ${isPlayerFrozen ? 'sticky top-0 z-10 bg-background border-b border-border' : ''}`}>
-          <div className="relative">
+          <div className="relative max-h-[45vh]">
             <VideoPlayer videoId={currentVideoId} />
             <Button
               onClick={() => setIsPlayerFrozen(!isPlayerFrozen)}

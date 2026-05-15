@@ -145,23 +145,23 @@ export function ChannelSettings({
             </p>
           </div>
 
-          {/* Type - Read Only */}
-          <div className="space-y-0.5">
-            <Label className="text-[11px] text-muted-foreground">Type</Label>
-            <p className="text-xs text-sidebar-foreground py-1 px-2 bg-sidebar-accent rounded">
-              {displayValue(channel.contentType || "Long-Form")}
-            </p>
+          {/* Type and Tracking - Side by Side */}
+          <div className="flex gap-2">
+            <div className="flex-1 space-y-0.5">
+              <Label className="text-[11px] text-muted-foreground">Type</Label>
+              <p className="text-xs text-sidebar-foreground py-1 px-2 bg-sidebar-accent rounded">
+                {displayValue(channel.contentType || "Long-Form")}
+              </p>
+            </div>
+            <div className="flex-1 space-y-0.5">
+              <Label className="text-[11px] text-muted-foreground">Tracking</Label>
+              <p className="text-xs text-sidebar-foreground py-1 px-2 bg-sidebar-accent rounded">
+                {displayValue(channel.tracking)}
+              </p>
+            </div>
           </div>
 
           <Separator className="bg-sidebar-border my-1" />
-
-          {/* Tracking - Read Only */}
-          <div className="space-y-0.5">
-            <Label className="text-[11px] text-muted-foreground">Tracking</Label>
-            <p className="text-xs text-sidebar-foreground py-1 px-2 bg-sidebar-accent rounded">
-              {displayValue(channel.tracking)}
-            </p>
-          </div>
 
           {/* Verified / Remarks - Read Only */}
           <div className="space-y-0.5">
@@ -215,58 +215,61 @@ export function ChannelSettings({
           />
         </div>
 
-        {/* Type Dropdown */}
-        <div className="space-y-0.5">
-          <Label htmlFor="type" className="text-[11px] text-muted-foreground">
-            Type
-          </Label>
-          <Select
-            value={tempValues.contentType}
-            onValueChange={(value) =>
-              setTempValues((prev) => ({ ...prev, contentType: value as ContentType }))
-            }
-          >
-            <SelectTrigger
-              id="type"
-              className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground h-7 text-xs"
+        {/* Type and Tracking - Side by Side */}
+        <div className="flex gap-2">
+          {/* Type Dropdown */}
+          <div className="flex-1 space-y-0.5">
+            <Label htmlFor="type" className="text-[11px] text-muted-foreground">
+              Type
+            </Label>
+            <Select
+              value={tempValues.contentType}
+              onValueChange={(value) =>
+                setTempValues((prev) => ({ ...prev, contentType: value as ContentType }))
+              }
             >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CONTENT_TYPES.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              <SelectTrigger
+                id="type"
+                className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground h-7 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CONTENT_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Tracking Dropdown */}
+          <div className="flex-1 space-y-0.5">
+            <Label htmlFor="tracking" className="text-[11px] text-muted-foreground">
+              Tracking
+            </Label>
+            <Select
+              value={tempValues.tracking}
+              onValueChange={(value) =>
+                setTempValues((prev) => ({ ...prev, tracking: value as TrackingStatus }))
+              }
+            >
+              <SelectTrigger
+                id="tracking"
+                className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground h-7 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="YES">YES</SelectItem>
+                <SelectItem value="NO">NO</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <Separator className="bg-sidebar-border my-1" />
-
-        {/* Tracking Dropdown */}
-        <div className="space-y-0.5">
-          <Label htmlFor="tracking" className="text-[11px] text-muted-foreground">
-            Tracking
-          </Label>
-          <Select
-            value={tempValues.tracking}
-            onValueChange={(value) =>
-              setTempValues((prev) => ({ ...prev, tracking: value as TrackingStatus }))
-            }
-          >
-            <SelectTrigger
-              id="tracking"
-              className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground h-7 text-xs"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="YES">YES</SelectItem>
-              <SelectItem value="NO">NO</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
 
         {/* Verified / Remarks Textarea */}
         <div className="space-y-0.5">
