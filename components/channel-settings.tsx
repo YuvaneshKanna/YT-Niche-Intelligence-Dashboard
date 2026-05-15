@@ -1,7 +1,6 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -11,64 +10,94 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import type { Channel, VerifiedStatus, TrackingStatus } from "@/lib/constants"
+import { SearchableDropdown } from "@/components/searchable-dropdown"
+import type { Channel, TrackingStatus } from "@/lib/constants"
+
+const CATEGORIES = [
+  "Entertainment",
+  "Tech",
+  "Finance",
+  "Gaming",
+  "Education",
+  "Fitness",
+  "Food",
+  "Lifestyle",
+  "Travel",
+  "Music",
+]
+
+const SUB_CATEGORIES = [
+  "Commentary",
+  "Reviews",
+  "Tutorials",
+  "Vlogs",
+  "Shorts Commentary",
+  "Let's Play",
+  "Comedy",
+  "Podcasts",
+  "Workouts",
+  "Cooking",
+  "Quick Workouts",
+  "Science",
+  "Sports",
+  "Challenges",
+  "Personal Finance",
+  "Hardware",
+]
 
 interface ChannelSettingsProps {
   channel: Channel
+  onCategoryChange: (value: string) => void
   onSubCategoryChange: (value: string) => void
-  onVerifiedChange: (value: VerifiedStatus) => void
+  onVerifiedChange: (value: string) => void
   onTrackingChange: (value: TrackingStatus) => void
   onSave: () => void
 }
 
 export function ChannelSettings({
   channel,
+  onCategoryChange,
   onSubCategoryChange,
   onVerifiedChange,
   onTrackingChange,
   onSave,
 }: ChannelSettingsProps) {
   return (
-    <div className="flex-shrink-0 border-t border-sidebar-border bg-sidebar p-4">
-      <h3 className="font-semibold text-sidebar-foreground mb-3">
+    <div className="flex-shrink-0 border-b border-sidebar-border bg-sidebar p-4">
+      <h3 className="font-semibold text-sidebar-foreground mb-4">
         Channel Settings
       </h3>
-      
+
       <div className="space-y-3">
+        {/* Category Searchable Dropdown */}
         <div className="space-y-1.5">
-          <Label htmlFor="sub-category" className="text-xs text-muted-foreground">Sub-Category</Label>
-          <Input
-            id="sub-category"
+          <Label htmlFor="category" className="text-xs text-muted-foreground">
+            Category
+          </Label>
+          <SearchableDropdown
+            value={channel.category}
+            options={CATEGORIES}
+            placeholder="Select category..."
+            onSelect={onCategoryChange}
+          />
+        </div>
+
+        {/* Sub-Category Searchable Dropdown */}
+        <div className="space-y-1.5">
+          <Label htmlFor="sub-category" className="text-xs text-muted-foreground">
+            Sub-Category
+          </Label>
+          <SearchableDropdown
             value={channel.subCategory}
-            onChange={(e) => onSubCategoryChange(e.target.value)}
-            className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground"
+            options={SUB_CATEGORIES}
+            placeholder="Select sub-category..."
+            onSelect={onSubCategoryChange}
           />
         </div>
 
         <Separator className="bg-sidebar-border" />
 
-        <div className="space-y-1.5">
-          <Label htmlFor="verified" className="text-xs text-muted-foreground">
-            Verified
-          </Label>
-          <Select
-            value={channel.verified}
-            onValueChange={(value) => onVerifiedChange(value as VerifiedStatus)}
-          >
-            <SelectTrigger
-              id="verified"
-              className="bg-sidebar-accent border-sidebar-border text-sidebar-foreground"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Yes">Yes</SelectItem>
-              <SelectItem value="No">No</SelectItem>
-              <SelectItem value="Pending">Pending</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
+        {/* Tracking Dropdown */}
         <div className="space-y-1.5">
           <Label htmlFor="tracking" className="text-xs text-muted-foreground">
             Tracking
@@ -90,9 +119,24 @@ export function ChannelSettings({
           </Select>
         </div>
 
+        {/* Verified / Remarks Textarea */}
+        <div className="space-y-1.5">
+          <Label htmlFor="verified" className="text-xs text-muted-foreground">
+            Verified / Remarks
+          </Label>
+          <textarea
+            id="verified"
+            value={channel.verified}
+            onChange={(e) => onVerifiedChange(e.target.value)}
+            placeholder="Add any remarks or notes..."
+            rows={2}
+            className="w-full px-3 py-2 text-sm rounded-md bg-sidebar-accent border border-sidebar-border text-sidebar-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+        </div>
+
         <Button
           onClick={onSave}
-          className="w-full mt-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+          className="w-full mt-3 bg-primary hover:bg-primary/90 text-primary-foreground"
         >
           Save Changes
         </Button>
@@ -100,3 +144,4 @@ export function ChannelSettings({
     </div>
   )
 }
+

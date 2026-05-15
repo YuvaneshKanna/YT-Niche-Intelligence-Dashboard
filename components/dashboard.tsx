@@ -41,6 +41,14 @@ export function Dashboard() {
 
   const selectedChannel = channelsState.find((c) => c.id === selectedChannelId)!
 
+  const handleCategoryChange = (value: string) => {
+    setChannelsState((prev) =>
+      prev.map((c) =>
+        c.id === selectedChannelId ? { ...c, category: value as any } : c
+      )
+    )
+  }
+
   const handleSubCategoryChange = (value: string) => {
     setChannelsState((prev) =>
       prev.map((c) =>
@@ -49,7 +57,7 @@ export function Dashboard() {
     )
   }
 
-  const handleVerifiedChange = (value: VerifiedStatus) => {
+  const handleVerifiedChange = (value: string) => {
     setChannelsState((prev) =>
       prev.map((c) =>
         c.id === selectedChannelId ? { ...c, verified: value } : c
@@ -87,7 +95,7 @@ export function Dashboard() {
       <aside className="w-[360px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border">
         {/* Sidebar Header */}
         <div className="p-4 border-b border-sidebar-border">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <Youtube className="w-5 h-5 text-primary-foreground" />
             </div>
@@ -95,6 +103,20 @@ export function Dashboard() {
               YT Niche Intelligence
             </h1>
           </div>
+        </div>
+
+        {/* Channel Settings - At top */}
+        <ChannelSettings
+          channel={selectedChannel}
+          onCategoryChange={handleCategoryChange}
+          onSubCategoryChange={handleSubCategoryChange}
+          onVerifiedChange={handleVerifiedChange}
+          onTrackingChange={handleTrackingChange}
+          onSave={handleSave}
+        />
+
+        {/* Search Bar */}
+        <div className="p-4 border-b border-sidebar-border">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
@@ -124,15 +146,6 @@ export function Dashboard() {
             )}
           </div>
         </ScrollArea>
-
-        {/* Channel Settings - Sticky at bottom */}
-        <ChannelSettings
-          channel={selectedChannel}
-          onSubCategoryChange={handleSubCategoryChange}
-          onVerifiedChange={handleVerifiedChange}
-          onTrackingChange={handleTrackingChange}
-          onSave={handleSave}
-        />
       </aside>
 
       {/* Main Content */}
