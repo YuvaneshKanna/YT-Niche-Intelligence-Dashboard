@@ -88,6 +88,13 @@ export function ChannelSettings({
   }
 
   const handleCancel = () => {
+    setTempValues({
+      category: channel.category,
+      subCategory: channel.subCategory,
+      contentType: channel.contentType || "Long-Form",
+      tracking: channel.tracking,
+      verified: channel.verified,
+    })
     setIsEditMode(false)
   }
 
@@ -175,14 +182,6 @@ export function ChannelSettings({
         <h3 className="font-semibold text-sidebar-foreground">
           Channel Settings
         </h3>
-        <Button
-          onClick={handleCancel}
-          variant="outline"
-          size="sm"
-          className="border-muted text-muted-foreground hover:bg-muted/10 h-8"
-        >
-          Cancel
-        </Button>
       </div>
 
       <div className="space-y-3">
@@ -281,17 +280,26 @@ export function ChannelSettings({
               setTempValues((prev) => ({ ...prev, verified: e.target.value }))
             }
             placeholder="Add any remarks or notes..."
-            rows={2}
+            rows={3}
             className="w-full px-3 py-2 text-sm rounded-md bg-sidebar-accent border border-sidebar-border text-sidebar-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
 
-        <Button
-          onClick={handleSave}
-          className="w-full mt-3 bg-primary hover:bg-primary/90 text-primary-foreground"
-        >
-          Save Changes
-        </Button>
+        <div className="flex gap-2 mt-3">
+          <Button
+            onClick={handleSave}
+            className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground"
+          >
+            Save Changes
+          </Button>
+          <Button
+            onClick={handleCancel}
+            variant="outline"
+            className="flex-1 border-muted text-muted-foreground hover:bg-muted/10"
+          >
+            Cancel
+          </Button>
+        </div>
       </div>
     </div>
   )

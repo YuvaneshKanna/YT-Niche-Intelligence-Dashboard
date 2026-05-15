@@ -98,11 +98,11 @@ export function Dashboard() {
   }, [activeTab])
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background overflow-hidden">
       {/* Left Sidebar */}
-      <aside className="w-[360px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border">
-        {/* Sidebar Header */}
-        <div className="p-4 border-b border-sidebar-border">
+      <aside className="w-[360px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden">
+        {/* Sidebar Header - FIXED */}
+        <div className="flex-shrink-0 p-4 border-b border-sidebar-border">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <Youtube className="w-5 h-5 text-primary-foreground" />
@@ -113,19 +113,21 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Channel Settings - At top */}
-        <ChannelSettings
-          channel={selectedChannel}
-          onCategoryChange={handleCategoryChange}
-          onSubCategoryChange={handleSubCategoryChange}
-          onContentTypeChange={handleContentTypeChange}
-          onVerifiedChange={handleVerifiedChange}
-          onTrackingChange={handleTrackingChange}
-          onSave={handleSave}
-        />
+        {/* Channel Settings - FIXED */}
+        <div className="flex-shrink-0">
+          <ChannelSettings
+            channel={selectedChannel}
+            onCategoryChange={handleCategoryChange}
+            onSubCategoryChange={handleSubCategoryChange}
+            onContentTypeChange={handleContentTypeChange}
+            onVerifiedChange={handleVerifiedChange}
+            onTrackingChange={handleTrackingChange}
+            onSave={handleSave}
+          />
+        </div>
 
-        {/* Search Bar */}
-        <div className="p-4 border-b border-sidebar-border">
+        {/* Search Bar - FIXED */}
+        <div className="flex-shrink-0 p-4 border-b border-sidebar-border">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
@@ -137,8 +139,8 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Channel List */}
-        <ScrollArea className="flex-1">
+        {/* Channel List - SCROLLABLE ONLY */}
+        <ScrollArea className="flex-1 overflow-hidden">
           <div className="p-2 space-y-1">
             {filteredChannels.map((channel) => (
               <ChannelCard
@@ -158,10 +160,10 @@ export function Dashboard() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <div className="p-6 max-w-6xl mx-auto">
-          {/* Channel Header */}
-          <div className="flex items-center justify-between mb-6">
+      <main className="flex-1 flex flex-col bg-background overflow-hidden">
+        {/* Channel Header - FIXED */}
+        <div className="flex-shrink-0 p-6 border-b border-border">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <h2 className="text-2xl font-bold text-foreground">
                 {selectedChannel.handle}
@@ -198,15 +200,18 @@ export function Dashboard() {
               Open on YouTube
             </Button>
           </div>
+        </div>
 
-          {/* Video Player */}
+        {/* Video Player - FIXED */}
+        <div className="flex-shrink-0 px-6 pt-4">
           <VideoPlayer videoId={currentVideoId} />
+        </div>
 
-          {/* Video Tabs */}
+        {/* Video Tabs - FIXED */}
+        <div className="flex-shrink-0 px-6 pt-4 border-b border-border">
           <Tabs
             value={activeTab}
             onValueChange={setActiveTab}
-            className="mt-6"
           >
             <TabsList className="bg-muted border border-border">
               <TabsTrigger
@@ -228,43 +233,53 @@ export function Dashboard() {
                 Live
               </TabsTrigger>
             </TabsList>
-
-            <TabsContent value="videos" className="mt-4">
-              <div className="grid grid-cols-3 gap-4">
-                {videos.map((video) => (
-                  <VideoCard
-                    key={video.id}
-                    video={video}
-                    onClick={() => setCurrentVideoId(video.videoId)}
-                  />
-                ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="shorts" className="mt-4">
-              <div className="grid grid-cols-3 gap-4">
-                {shorts.map((video) => (
-                  <VideoCard
-                    key={video.id}
-                    video={video}
-                    onClick={() => setCurrentVideoId(video.videoId)}
-                  />
-                ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="live" className="mt-4">
-              <div className="grid grid-cols-3 gap-4">
-                {liveStreams.map((video) => (
-                  <VideoCard
-                    key={video.id}
-                    video={video}
-                    onClick={() => setCurrentVideoId(video.videoId)}
-                  />
-                ))}
-              </div>
-            </TabsContent>
           </Tabs>
+        </div>
+
+        {/* Video Grid - SCROLLABLE ONLY */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-6 max-w-6xl mx-auto">
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+            >
+              <TabsContent value="videos" className="mt-0">
+                <div className="grid grid-cols-3 gap-4">
+                  {videos.map((video) => (
+                    <VideoCard
+                      key={video.id}
+                      video={video}
+                      onClick={() => setCurrentVideoId(video.videoId)}
+                    />
+                  ))}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="shorts" className="mt-0">
+                <div className="grid grid-cols-3 gap-4">
+                  {shorts.map((video) => (
+                    <VideoCard
+                      key={video.id}
+                      video={video}
+                      onClick={() => setCurrentVideoId(video.videoId)}
+                    />
+                  ))}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="live" className="mt-0">
+                <div className="grid grid-cols-3 gap-4">
+                  {liveStreams.map((video) => (
+                    <VideoCard
+                      key={video.id}
+                      video={video}
+                      onClick={() => setCurrentVideoId(video.videoId)}
+                    />
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+          </div>
         </div>
       </main>
     </div>
