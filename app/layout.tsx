@@ -7,7 +7,7 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'YT Niche Intelligence | YouTube Channel Review Dashboard',
+  title: 'YT Niche Overview | YouTube Channel Review Dashboard',
   description: 'Analyze and review YouTube channels with niche intelligence tools',
   generator: 'v0.app',
   icons: {

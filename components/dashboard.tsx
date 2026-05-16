@@ -306,7 +306,7 @@ export function Dashboard() {
               <Youtube className="w-5 h-5 text-primary-foreground" />
             </div>
             <h1 className="text-lg font-bold text-sidebar-foreground">
-              YT Niche Intelligence
+              YT Niche Overview
             </h1>
           </div>
         </div>
