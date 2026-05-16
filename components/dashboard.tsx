@@ -538,7 +538,7 @@ export function Dashboard() {
           <div className="w-[60%] flex flex-col min-h-0">
             <div className="w-full h-full rounded-xl overflow-hidden bg-muted">
               <iframe
-                src="https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0"
+                src={`https://www.youtube.com/embed/${selectedChannel.latestVideoId || 'dQw4w9WgXcQ'}?rel=0`}
                 title="YouTube video player"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
