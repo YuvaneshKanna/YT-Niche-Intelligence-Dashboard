@@ -669,7 +669,7 @@ export function Dashboard() {
           ) : (
             <div
               ref={scrollContainerRef}
-              className="flex flex-nowrap items-start overflow-x-scroll overflow-y-visible gap-3 pb-3 mt-4"
+              className="flex flex-nowrap items-start overflow-x-scroll overflow-y-visible gap-3 pb-3 pt-4"
               onMouseLeave={() => setHoveredSimilarId(null)}
             >
               {similarChannels.slice(0, 4).map((ch) => {
