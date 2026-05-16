@@ -604,7 +604,6 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-          </div>
 
           {/* RIGHT — Info Cards stacked vertically, fills height of left column */}
           <div className="w-[40%] flex flex-col h-full min-h-0 gap-3 overflow-y-auto pr-2">
