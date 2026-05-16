@@ -129,6 +129,7 @@ export function Dashboard() {
   const [favourites, setFavourites] = useState<string[]>([])
   const [isFavouritesOpen, setIsFavouritesOpen] = useState(false)
   const [hoveredSimilarId, setHoveredSimilarId] = useState<string | null>(null)
+  const [videoPlaying, setVideoPlaying] = useState(false)
 
   const toggleFavourite = (id: string) => {
     setFavourites(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id])
@@ -216,6 +217,7 @@ export function Dashboard() {
   const handleSelectChannel = (id: string) => {
     const ch = channelsState.find((c) => c.id === id)!
     setSelectedChannelId(id)
+    setVideoPlaying(false)
     setIsEditMode(false)
     setTempValues({
       category: ch.category,
@@ -536,15 +538,46 @@ export function Dashboard() {
 
           {/* LEFT — Video Player */}
           <div className="w-[60%] flex flex-col min-h-0">
-            <div className="w-full h-full rounded-xl overflow-hidden bg-muted">
-              <iframe
-                key={selectedChannel.id}
-                src={`https://www.youtube.com/embed/${selectedChannel.latestVideoId || 'dQw4w9WgXcQ'}?rel=0&autoplay=0`}
-                title="YouTube video player"
-                allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-                className="w-full h-full"
-              />
+            <div className="w-full h-full rounded-xl overflow-hidden bg-black relative">
+              {videoPlaying ? (
+                <iframe
+                  key={selectedChannel.id}
+                  src={`https://www.youtube.com/embed/${selectedChannel.latestVideoId || 'dQw4w9WgXcQ'}?rel=0&autoplay=1`}
+                  title="YouTube video player"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="w-full h-full"
+                />
+              ) : (
+                <div
+                  className="w-full h-full relative cursor-pointer group"
+                  onClick={() => setVideoPlaying(true)}
+                >
+                  {/* YouTube thumbnail */}
+                  <img
+                    src={`https://img.youtube.com/vi/${selectedChannel.latestVideoId || 'dQw4w9WgXcQ'}/maxresdefault.jpg`}
+                    alt="Video thumbnail"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = `https://img.youtube.com/vi/${selectedChannel.latestVideoId || 'dQw4w9WgXcQ'}/hqdefault.jpg`
+                    }}
+                  />
+                  {/* Dark overlay */}
+                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-colors" />
+                  {/* Play button */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-16 h-16 rounded-full bg-red-600 group-hover:bg-red-500 flex items-center justify-center shadow-2xl transition-all group-hover:scale-110">
+                      <svg viewBox="0 0 24 24" fill="white" className="w-7 h-7 ml-1">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </div>
+                  </div>
+                  {/* Channel name overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
+                    <p className="text-white text-sm font-medium">{selectedChannel.handle} · Click to play</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
