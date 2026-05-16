@@ -165,20 +165,6 @@ export function Dashboard() {
     verified: initialChannels[0].verified,
   })
 
-  // Fetch most popular video when selected channel changes
-  useEffect(() => {
-    if (!selectedChannel?.handle) return
-    setVideoData(null)
-    setVideoPlaying(false)
-    setVideoLoading(true)
-    fetch(`/api/channel-video?handle=${encodeURIComponent(selectedChannel.handle)}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.videoId) setVideoData(data)
-      })
-      .catch(() => {})
-      .finally(() => setVideoLoading(false))
-  }, [selectedChannel?.handle])
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -230,6 +216,24 @@ export function Dashboard() {
     about: "—", createdOn: "—", subscribers: "—",
     totalVideos: "—", totalViews: "—", country: "—",
   }
+
+  // Fetch most popular video when selected channel changes
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    const handle = channelsState.find(c => c.id === selectedChannelId)?.handle
+    if (!handle) return
+    setVideoData(null)
+    setVideoPlaying(false)
+    setVideoLoading(true)
+    fetch(`/api/channel-video?handle=${encodeURIComponent(handle)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.videoId) setVideoData(data)
+      })
+      .catch(() => {})
+      .finally(() => setVideoLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChannelId])
 
   const handleSelectChannel = (id: string) => {
     const ch = channelsState.find((c) => c.id === id)!
