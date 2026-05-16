@@ -669,7 +669,7 @@ export function Dashboard() {
           ) : (
             <div
               ref={scrollContainerRef}
-              className="flex flex-nowrap items-start overflow-x-scroll overflow-y-visible gap-3 pb-3 pt-4"
+              className="flex flex-nowrap items-start overflow-x-scroll overflow-y-visible gap-3 py-4"
               onMouseLeave={() => setHoveredSimilarId(null)}
             >
               {similarChannels.slice(0, 4).map((ch) => {
@@ -687,7 +687,7 @@ export function Dashboard() {
                       }`}
                   >
                     {/* 16:9 Thumbnail */}
-                    <div className="w-full aspect-video relative overflow-visible bg-zinc-900">
+                    <div className="w-full aspect-video relative overflow-hidden rounded-t-xl bg-zinc-900">
                       {/* Letter fallback always rendered underneath */}
                       <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900">
                         <span className="text-3xl font-bold text-white/30">
