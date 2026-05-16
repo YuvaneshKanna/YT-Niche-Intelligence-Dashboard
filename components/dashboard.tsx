@@ -291,19 +291,7 @@ export function Dashboard() {
 
   // Instantly persist a single field change without entering edit mode
   const handleFieldChange = (field: "category" | "subCategory" | "contentType" | "tracking", value: string) => {
-    setChannelsState((prev) =>
-      prev.map((c) =>
-        c.id === selectedChannelId
-          ? {
-            ...c,
-            ...(field === "category" ? { category: value as NicheCategory } : {}),
-            ...(field === "subCategory" ? { subCategory: value } : {}),
-            ...(field === "contentType" ? { contentType: value as ContentType } : {}),
-            ...(field === "tracking" ? { tracking: value as TrackingStatus } : {}),
-          }
-          : c
-      )
-    )
+    if (!isEditMode) return
     setTempValues((p) => ({ ...p, [field]: value }))
     setOpenField(null)
   }
@@ -449,13 +437,13 @@ export function Dashboard() {
 
             <div className="w-px self-stretch bg-border flex-shrink-0" />
 
-            {/* Inline searchable dropdowns — always active */}
+            {/* Inline searchable dropdowns — only active in edit mode */}
             <div className="flex items-stretch flex-nowrap flex-1" ref={settingsBarRef}>
               {([
-                { key: "category" as const, label: "Category", options: CATEGORIES, value: selectedChannel.category || "—" },
-                { key: "subCategory" as const, label: "Sub-Category", options: SUB_CATEGORIES, value: selectedChannel.subCategory || "—" },
-                { key: "contentType" as const, label: "Type", options: CONTENT_TYPES, value: selectedChannel.contentType || "—" },
-                { key: "tracking" as const, label: "Tracking", options: TRACKING_STATUSES, value: selectedChannel.tracking || "—" },
+                { key: "category" as const, label: "Category", options: CATEGORIES, value: (isEditMode ? tempValues.category : selectedChannel.category) || "—" },
+                { key: "subCategory" as const, label: "Sub-Category", options: SUB_CATEGORIES, value: (isEditMode ? tempValues.subCategory : selectedChannel.subCategory) || "—" },
+                { key: "contentType" as const, label: "Type", options: CONTENT_TYPES, value: (isEditMode ? tempValues.contentType : selectedChannel.contentType) || "—" },
+                { key: "tracking" as const, label: "Tracking", options: TRACKING_STATUSES, value: (isEditMode ? tempValues.tracking : selectedChannel.tracking) || "—" },
               ]).map(({ key, label, options, value }, idx, arr) => {
                 const isOpen = openField === key
                 const filtered = (options as readonly string[]).filter((o) =>
@@ -473,18 +461,19 @@ export function Dashboard() {
                   return palette[(options as readonly string[]).indexOf(opt) % palette.length]
                 }
                 return (
-                  <>
-                    <div key={key} className="relative flex-1 px-3 flex flex-col justify-center">
+                  <div key={key} className="flex-1 flex items-stretch">
+                    <div className="relative flex-1 px-3 flex flex-col justify-center">
                       <span className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">{label}</span>
                       <button
+                        disabled={!isEditMode}
                         onClick={() => { setOpenField(isOpen ? null : key); setFieldSearch("") }}
-                        className={`flex items-center gap-1.5 text-[13px] font-medium transition-colors w-full text-left rounded px-1 py-0.5 -mx-1 ${isOpen ? "text-purple-400 bg-white/5 ring-1 ring-purple-500/40" : "text-foreground hover:text-purple-400 hover:bg-white/5"
+                        className={`flex items-center gap-1.5 text-[13px] font-medium transition-colors w-full text-left rounded px-1 py-0.5 -mx-1 ${!isEditMode ? "text-foreground opacity-70 cursor-not-allowed" : isOpen ? "text-purple-400 bg-white/5 ring-1 ring-purple-500/40" : "text-foreground hover:text-purple-400 hover:bg-white/5"
                           }`}
                       >
                         <span className={key === "tracking" ? (value === "YES" ? "text-green-400" : "text-red-400") : ""}>
                           {value}
                         </span>
-                        <ChevronDown className={`w-3 h-3 ml-auto transition-transform ${isOpen ? "rotate-180 text-purple-400" : "text-muted-foreground"}`} />
+                        {isEditMode && <ChevronDown className={`w-3 h-3 ml-auto transition-transform ${isOpen ? "rotate-180 text-purple-400" : "text-muted-foreground"}`} />}
                       </button>
                       {isOpen && (
                         <div className="absolute top-full left-0 mt-2 z-50 bg-popover border border-border rounded-xl shadow-2xl min-w-[200px] flex flex-col overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100">
@@ -524,7 +513,7 @@ export function Dashboard() {
                       )}
                     </div>
                     {idx < arr.length - 1 && <div className="w-px self-stretch bg-border flex-shrink-0" />}
-                  </>
+                  </div>
                 )
               })}
             </div>
