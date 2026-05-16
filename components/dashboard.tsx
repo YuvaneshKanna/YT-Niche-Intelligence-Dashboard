@@ -130,6 +130,8 @@ export function Dashboard() {
   const [isFavouritesOpen, setIsFavouritesOpen] = useState(false)
   const [hoveredSimilarId, setHoveredSimilarId] = useState<string | null>(null)
   const [videoPlaying, setVideoPlaying] = useState(false)
+  const [videoData, setVideoData] = useState<{ videoId: string; title: string; thumbnail: string } | null>(null)
+  const [videoLoading, setVideoLoading] = useState(false)
 
   const toggleFavourite = (id: string) => {
     setFavourites(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id])
@@ -162,6 +164,21 @@ export function Dashboard() {
     tracking: initialChannels[0].tracking as string,
     verified: initialChannels[0].verified,
   })
+
+  // Fetch most popular video when selected channel changes
+  useEffect(() => {
+    if (!selectedChannel?.handle) return
+    setVideoData(null)
+    setVideoPlaying(false)
+    setVideoLoading(true)
+    fetch(`/api/channel-video?handle=${encodeURIComponent(selectedChannel.handle)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.videoId) setVideoData(data)
+      })
+      .catch(() => {})
+      .finally(() => setVideoLoading(false))
+  }, [selectedChannel?.handle])
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -539,11 +556,11 @@ export function Dashboard() {
           {/* LEFT — Video Player */}
           <div className="w-[60%] flex flex-col min-h-0">
             <div className="w-full h-full rounded-xl overflow-hidden bg-black relative">
-              {videoPlaying ? (
+              {videoPlaying && videoData ? (
                 <iframe
                   key={selectedChannel.id}
-                  src={`https://www.youtube.com/embed/${selectedChannel.latestVideoId || 'dQw4w9WgXcQ'}?rel=0&autoplay=1`}
-                  title="YouTube video player"
+                  src={`https://www.youtube.com/embed/${videoData.videoId}?rel=0&autoplay=1`}
+                  title={videoData.title}
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowFullScreen
                   className="w-full h-full"
@@ -551,31 +568,43 @@ export function Dashboard() {
               ) : (
                 <div
                   className="w-full h-full relative cursor-pointer group"
-                  onClick={() => setVideoPlaying(true)}
+                  onClick={() => { if (videoData) setVideoPlaying(true) }}
                 >
-                  {/* YouTube thumbnail */}
-                  <img
-                    src={`https://img.youtube.com/vi/${selectedChannel.latestVideoId || 'dQw4w9WgXcQ'}/maxresdefault.jpg`}
-                    alt="Video thumbnail"
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = `https://img.youtube.com/vi/${selectedChannel.latestVideoId || 'dQw4w9WgXcQ'}/hqdefault.jpg`
-                    }}
-                  />
-                  {/* Dark overlay */}
-                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-colors" />
-                  {/* Play button */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-16 h-16 rounded-full bg-red-600 group-hover:bg-red-500 flex items-center justify-center shadow-2xl transition-all group-hover:scale-110">
-                      <svg viewBox="0 0 24 24" fill="white" className="w-7 h-7 ml-1">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
+                  {/* Thumbnail */}
+                  {videoLoading ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900">
+                      <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-white/60 text-sm">Loading {selectedChannel.handle}&apos;s top video…</p>
                     </div>
-                  </div>
-                  {/* Channel name overlay */}
-                  <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
-                    <p className="text-white text-sm font-medium">{selectedChannel.handle} · Click to play</p>
-                  </div>
+                  ) : videoData ? (
+                    <>
+                      <img
+                        src={videoData.thumbnail}
+                        alt={videoData.title}
+                        className="w-full h-full object-cover"
+                      />
+                      {/* Dark overlay */}
+                      <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-colors" />
+                      {/* Play button */}
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-16 h-16 rounded-full bg-red-600 group-hover:bg-red-500 flex items-center justify-center shadow-2xl transition-all group-hover:scale-110">
+                          <svg viewBox="0 0 24 24" fill="white" className="w-7 h-7 ml-1">
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                        </div>
+                      </div>
+                      {/* Video title overlay */}
+                      <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 to-transparent">
+                        <p className="text-white/70 text-xs mb-0.5">{selectedChannel.handle} · Most Popular Video</p>
+                        <p className="text-white text-sm font-medium line-clamp-1">{videoData.title}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-zinc-900">
+                      <Youtube className="w-10 h-10 text-white/30" />
+                      <p className="text-white/50 text-sm">Video unavailable</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
