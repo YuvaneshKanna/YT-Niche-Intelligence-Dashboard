@@ -345,7 +345,7 @@ export function Dashboard() {
       </aside>
 
       {/* ── RIGHT PANEL ── */}
-      <main className="flex-1 flex flex-col h-full bg-background overflow-y-auto">
+      <main className="flex-1 flex flex-col h-full bg-background overflow-hidden">
 
         {/* A) CHANNEL SETTINGS HORIZONTAL BAR — redesigned, full-width */}
         <div className="flex-shrink-0 px-5 border-b border-border bg-muted/20" style={{ minHeight: "56px" }}>
@@ -532,11 +532,11 @@ export function Dashboard() {
 
 
         {/* C+D) TWO-COLUMN: VIDEO PLAYER (left 60%) + INFO CARDS (right 40%) */}
-        <div className="flex h-auto px-5 pt-4 pb-4 gap-4 overflow-hidden flex-shrink-0">
+        <div className="flex flex-1 min-h-0 px-5 pt-4 pb-4 gap-4 overflow-hidden">
 
           {/* LEFT — Video Player */}
-          <div className="w-[60%] flex flex-col">
-            <div className="w-full aspect-video rounded-xl overflow-hidden bg-muted">
+          <div className="w-[60%] flex flex-col min-h-0">
+            <div className="w-full h-full rounded-xl overflow-hidden bg-muted">
               <iframe
                 src="https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0"
                 title="YouTube video player"
@@ -548,7 +548,7 @@ export function Dashboard() {
           </div>
 
           {/* RIGHT — Info Cards stacked vertically, fills height of left column */}
-          <div className="w-[40%] flex flex-col h-auto gap-3 overflow-y-auto pr-2">
+          <div className="w-[40%] flex flex-col h-full min-h-0 gap-3 overflow-y-auto pr-2">
 
             {/* Channel Identity Card — @handle, badges, YouTube link */}
             <div className="flex flex-col gap-2 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
