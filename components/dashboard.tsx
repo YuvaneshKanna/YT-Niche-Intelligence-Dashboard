@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useMemo, useRef, useEffect } from "react"
-import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare } from "lucide-react"
+import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star } from "lucide-react"
+import * as XLSX from "xlsx"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -39,34 +40,34 @@ const CHANNEL_INFO: Record<string, {
   totalViews: string
   country: string
 }> = {
-  "1":  { about: "Stunts, philanthropy and large-scale challenges that push the limits of creativity and generosity.",   createdOn: "Feb 19, 2012", subscribers: "290M",  totalVideos: "780",  totalViews: "42B",  country: "🇺🇸 United States" },
-  "2":  { about: "In-depth consumer tech reviews, smartphone comparisons and cutting-edge gadget coverage.",              createdOn: "Jan 21, 2009", subscribers: "18.5M", totalVideos: "1.4K", totalViews: "4.2B", country: "🇺🇸 United States" },
-  "3":  { about: "Personal finance, real estate investing and wealth-building strategies for everyday people.",           createdOn: "Aug 4, 2016",  subscribers: "5.1M",  totalVideos: "520",  totalViews: "890M", country: "🇺🇸 United States" },
-  "4":  { about: "Gaming commentary, Let's Play series and long-running variety content across genres.",                  createdOn: "Apr 29, 2010", subscribers: "111M",  totalVideos: "4.8K", totalViews: "28B",  country: "🇸🇪 Sweden" },
-  "5":  { about: "Viral short-form comedy and relatable everyday moments reaching hundreds of millions.",                 createdOn: "Jul 31, 2018", subscribers: "162M",  totalVideos: "1.1K", totalViews: "15B",  country: "🇩🇿 Algeria" },
-  "6":  { about: "Long-form conversations on science, AI, philosophy and the future of humanity.",                        createdOn: "Aug 17, 2018", subscribers: "4.3M",  totalVideos: "380",  totalViews: "650M", country: "🇺🇸 United States" },
-  "7":  { about: "Free, professional-grade workout routines for all fitness levels — no gym required.",                   createdOn: "Jan 21, 2009", subscribers: "7.6M",  totalVideos: "680",  totalViews: "1.2B", country: "🇺🇸 United States" },
-  "8":  { about: "Culinary adventures recreating iconic dishes from TV, movies and pop culture.",                         createdOn: "Aug 5, 2016",  subscribers: "10.2M", totalVideos: "330",  totalViews: "2.1B", country: "🇺🇸 United States" },
-  "9":  { about: "One-minute travel stories that capture culture, humanity and hidden corners of the world.",             createdOn: "Apr 1, 2016",  subscribers: "18M",   totalVideos: "1.2K", totalViews: "5.3B", country: "🇮🇱 Israel" },
-  "10": { about: "PC hardware reviews, tech builds and in-depth analysis of consumer and enterprise tech.",               createdOn: "Aug 24, 2008", subscribers: "15.8M", totalVideos: "5.7K", totalViews: "8.9B", country: "🇨🇦 Canada" },
-  "11": { about: "Short daily workout sessions designed to be quick, effective and accessible to everyone.",               createdOn: "Jan 28, 2019", subscribers: "3.2M",  totalVideos: "290",  totalViews: "480M", country: "🇬🇧 United Kingdom" },
-  "12": { about: "Fascinating science facts, curious geography and the quirky side of the world around us.",              createdOn: "Nov 26, 2008", subscribers: "6.7M",  totalVideos: "220",  totalViews: "560M", country: "🇬🇧 United Kingdom" },
-  "13": { about: "Epic sports trick shots, team challenges and outrageous stunts with world-class athletes.",             createdOn: "Mar 16, 2009", subscribers: "60M",   totalVideos: "410",  totalViews: "18B",  country: "🇺🇸 United States" },
-  "14": { about: "Science education that makes complex ideas accessible through experiments and storytelling.",            createdOn: "Sep 23, 2011", subscribers: "15.9M", totalVideos: "320",  totalViews: "1.6B", country: "🇦🇺 Australia" },
-  "15": { about: "Lifestyle challenges, creative experiments and entertaining content for Gen Z audiences.",               createdOn: "Aug 14, 2018", subscribers: "8.4M",  totalVideos: "740",  totalViews: "2.3B", country: "🇺🇸 United States" },
-  "16": { about: "Science-based engineering stunts, viral contraptions and mind-bending experiments for all ages.",      createdOn: "Mar 26, 2011", subscribers: "48M",   totalVideos: "140",  totalViews: "5.8B", country: "🇺🇸 United States" },
-  "17": { about: "Commentary, challenges and behind-the-scenes content from the creator behind MrBeast.",               createdOn: "Jan 1, 2012",  subscribers: "22M",   totalVideos: "210",  totalViews: "3.1B", country: "🇺🇸 United States" },
-  "18": { about: "Magic illusion videos and jaw-dropping visual effects that fool the eye and stun audiences.",          createdOn: "Oct 31, 2013", subscribers: "82M",   totalVideos: "970",  totalViews: "9.4B", country: "🇺🇸 United States" },
-  "19": { about: "Product unboxings, comparisons and hands-on impressions of the latest consumer gadgets.",              createdOn: "Dec 11, 2010", subscribers: "22.8M", totalVideos: "850",  totalViews: "3.8B", country: "🇨🇦 Canada" },
-  "20": { about: "Tech reviews, flagship device showdowns and deep-dives into mobile and consumer electronics.",          createdOn: "Nov 17, 2014", subscribers: "15.3M", totalVideos: "1.1K", totalViews: "2.4B", country: "🇮🇳 India" },
-  "21": { about: "Investing, dividend strategies and building wealth through passive income and smart finance.",           createdOn: "Mar 5, 2016",  subscribers: "2.7M",  totalVideos: "410",  totalViews: "320M", country: "🇺🇸 United States" },
-  "22": { about: "Real estate, stocks and economic commentary from a serial entrepreneur and investor.",                  createdOn: "Jun 27, 2015", subscribers: "2.1M",  totalVideos: "3.8K", totalViews: "780M", country: "🇺🇸 United States" },
-  "23": { about: "Horror games, comedy playthroughs and emotional storytelling across all game genres.",                  createdOn: "May 26, 2012", subscribers: "35.6M", totalVideos: "5.4K", totalViews: "19.4B",country: "🇺🇸 United States" },
-  "24": { about: "High-energy gaming content, vlogs and charity livestreams with infectious personality.",                createdOn: "Feb 7, 2012",  subscribers: "30.8M", totalVideos: "4.9K", totalViews: "14.7B",country: "🇮🇪 Ireland" },
-  "25": { about: "Science-backed strength and athletic training to help anyone build a better physique.",                 createdOn: "Jan 17, 2006", subscribers: "13.4M", totalVideos: "1.2K", totalViews: "1.9B", country: "🇺🇸 United States" },
-  "26": { about: "Cooking tutorials, restaurant-quality recipes and culinary masterclasses from a Michelin chef.",        createdOn: "Jun 28, 2012", subscribers: "20.7M", totalVideos: "720",  totalViews: "4.1B", country: "🇬🇧 United Kingdom" },
-  "27": { about: "Full-time travel couple documenting life on the road across every continent.",                          createdOn: "Oct 1, 2015",  subscribers: "1.4M",  totalVideos: "1.1K", totalViews: "260M", country: "🇺🇸 United States" },
-  "28": { about: "Relatable lifestyle vlogs, coffee shop adventures and honest conversations with Gen Z.",                createdOn: "Nov 7, 2017",  subscribers: "12.2M", totalVideos: "560",  totalViews: "1.8B", country: "🇺🇸 United States" },
+  "1": { about: "Stunts, philanthropy and large-scale challenges that push the limits of creativity and generosity.", createdOn: "Feb 19, 2012", subscribers: "290M", totalVideos: "780", totalViews: "42B", country: "🇺🇸 United States" },
+  "2": { about: "In-depth consumer tech reviews, smartphone comparisons and cutting-edge gadget coverage.", createdOn: "Jan 21, 2009", subscribers: "18.5M", totalVideos: "1.4K", totalViews: "4.2B", country: "🇺🇸 United States" },
+  "3": { about: "Personal finance, real estate investing and wealth-building strategies for everyday people.", createdOn: "Aug 4, 2016", subscribers: "5.1M", totalVideos: "520", totalViews: "890M", country: "🇺🇸 United States" },
+  "4": { about: "Gaming commentary, Let's Play series and long-running variety content across genres.", createdOn: "Apr 29, 2010", subscribers: "111M", totalVideos: "4.8K", totalViews: "28B", country: "🇸🇪 Sweden" },
+  "5": { about: "Viral short-form comedy and relatable everyday moments reaching hundreds of millions.", createdOn: "Jul 31, 2018", subscribers: "162M", totalVideos: "1.1K", totalViews: "15B", country: "🇩🇿 Algeria" },
+  "6": { about: "Long-form conversations on science, AI, philosophy and the future of humanity.", createdOn: "Aug 17, 2018", subscribers: "4.3M", totalVideos: "380", totalViews: "650M", country: "🇺🇸 United States" },
+  "7": { about: "Free, professional-grade workout routines for all fitness levels — no gym required.", createdOn: "Jan 21, 2009", subscribers: "7.6M", totalVideos: "680", totalViews: "1.2B", country: "🇺🇸 United States" },
+  "8": { about: "Culinary adventures recreating iconic dishes from TV, movies and pop culture.", createdOn: "Aug 5, 2016", subscribers: "10.2M", totalVideos: "330", totalViews: "2.1B", country: "🇺🇸 United States" },
+  "9": { about: "One-minute travel stories that capture culture, humanity and hidden corners of the world.", createdOn: "Apr 1, 2016", subscribers: "18M", totalVideos: "1.2K", totalViews: "5.3B", country: "🇮🇱 Israel" },
+  "10": { about: "PC hardware reviews, tech builds and in-depth analysis of consumer and enterprise tech.", createdOn: "Aug 24, 2008", subscribers: "15.8M", totalVideos: "5.7K", totalViews: "8.9B", country: "🇨🇦 Canada" },
+  "11": { about: "Short daily workout sessions designed to be quick, effective and accessible to everyone.", createdOn: "Jan 28, 2019", subscribers: "3.2M", totalVideos: "290", totalViews: "480M", country: "🇬🇧 United Kingdom" },
+  "12": { about: "Fascinating science facts, curious geography and the quirky side of the world around us.", createdOn: "Nov 26, 2008", subscribers: "6.7M", totalVideos: "220", totalViews: "560M", country: "🇬🇧 United Kingdom" },
+  "13": { about: "Epic sports trick shots, team challenges and outrageous stunts with world-class athletes.", createdOn: "Mar 16, 2009", subscribers: "60M", totalVideos: "410", totalViews: "18B", country: "🇺🇸 United States" },
+  "14": { about: "Science education that makes complex ideas accessible through experiments and storytelling.", createdOn: "Sep 23, 2011", subscribers: "15.9M", totalVideos: "320", totalViews: "1.6B", country: "🇦🇺 Australia" },
+  "15": { about: "Lifestyle challenges, creative experiments and entertaining content for Gen Z audiences.", createdOn: "Aug 14, 2018", subscribers: "8.4M", totalVideos: "740", totalViews: "2.3B", country: "🇺🇸 United States" },
+  "16": { about: "Science-based engineering stunts, viral contraptions and mind-bending experiments for all ages.", createdOn: "Mar 26, 2011", subscribers: "48M", totalVideos: "140", totalViews: "5.8B", country: "🇺🇸 United States" },
+  "17": { about: "Commentary, challenges and behind-the-scenes content from the creator behind MrBeast.", createdOn: "Jan 1, 2012", subscribers: "22M", totalVideos: "210", totalViews: "3.1B", country: "🇺🇸 United States" },
+  "18": { about: "Magic illusion videos and jaw-dropping visual effects that fool the eye and stun audiences.", createdOn: "Oct 31, 2013", subscribers: "82M", totalVideos: "970", totalViews: "9.4B", country: "🇺🇸 United States" },
+  "19": { about: "Product unboxings, comparisons and hands-on impressions of the latest consumer gadgets.", createdOn: "Dec 11, 2010", subscribers: "22.8M", totalVideos: "850", totalViews: "3.8B", country: "🇨🇦 Canada" },
+  "20": { about: "Tech reviews, flagship device showdowns and deep-dives into mobile and consumer electronics.", createdOn: "Nov 17, 2014", subscribers: "15.3M", totalVideos: "1.1K", totalViews: "2.4B", country: "🇮🇳 India" },
+  "21": { about: "Investing, dividend strategies and building wealth through passive income and smart finance.", createdOn: "Mar 5, 2016", subscribers: "2.7M", totalVideos: "410", totalViews: "320M", country: "🇺🇸 United States" },
+  "22": { about: "Real estate, stocks and economic commentary from a serial entrepreneur and investor.", createdOn: "Jun 27, 2015", subscribers: "2.1M", totalVideos: "3.8K", totalViews: "780M", country: "🇺🇸 United States" },
+  "23": { about: "Horror games, comedy playthroughs and emotional storytelling across all game genres.", createdOn: "May 26, 2012", subscribers: "35.6M", totalVideos: "5.4K", totalViews: "19.4B", country: "🇺🇸 United States" },
+  "24": { about: "High-energy gaming content, vlogs and charity livestreams with infectious personality.", createdOn: "Feb 7, 2012", subscribers: "30.8M", totalVideos: "4.9K", totalViews: "14.7B", country: "🇮🇪 Ireland" },
+  "25": { about: "Science-backed strength and athletic training to help anyone build a better physique.", createdOn: "Jan 17, 2006", subscribers: "13.4M", totalVideos: "1.2K", totalViews: "1.9B", country: "🇺🇸 United States" },
+  "26": { about: "Cooking tutorials, restaurant-quality recipes and culinary masterclasses from a Michelin chef.", createdOn: "Jun 28, 2012", subscribers: "20.7M", totalVideos: "720", totalViews: "4.1B", country: "🇬🇧 United Kingdom" },
+  "27": { about: "Full-time travel couple documenting life on the road across every continent.", createdOn: "Oct 1, 2015", subscribers: "1.4M", totalVideos: "1.1K", totalViews: "260M", country: "🇺🇸 United States" },
+  "28": { about: "Relatable lifestyle vlogs, coffee shop adventures and honest conversations with Gen Z.", createdOn: "Nov 7, 2017", subscribers: "12.2M", totalVideos: "560", totalViews: "1.8B", country: "🇺🇸 United States" },
 }
 
 // Date filter options
@@ -121,8 +122,37 @@ export function Dashboard() {
   const [customTo, setCustomTo] = useState("")
   const dateDropdownRef = useRef<HTMLDivElement>(null)
   const settingsBarRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [openField, setOpenField] = useState<"category" | "subCategory" | "contentType" | "tracking" | null>(null)
   const [fieldSearch, setFieldSearch] = useState("")
+
+  const [favourites, setFavourites] = useState<string[]>([])
+  const [isFavouritesOpen, setIsFavouritesOpen] = useState(false)
+  const [hoveredSimilarId, setHoveredSimilarId] = useState<string | null>(null)
+
+  const toggleFavourite = (id: string) => {
+    setFavourites(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id])
+  }
+
+  const exportFavouritesToExcel = () => {
+    const favChannels = channelsState.filter(c => favourites.includes(c.id))
+    const data = favChannels.map(c => ({
+      Handle: c.handle,
+      "Channel Name": c.fullName || "",
+      Category: c.category,
+      "Sub-Category": c.subCategory,
+      Type: c.type,
+      Tracking: c.tracking,
+      "Verified/Remarks": c.verified || "",
+      "YT URL": c.ytUrl || "",
+      "Shared On": c.sharedOn,
+    }))
+
+    const worksheet = XLSX.utils.json_to_sheet(data)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Favourites")
+    XLSX.writeFile(workbook, "YT-Niche-Favourites.xlsx")
+  }
 
   const [tempValues, setTempValues] = useState({
     category: initialChannels[0].category as string,
@@ -145,6 +175,18 @@ export function Dashboard() {
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
   }, [])
+
+  // Mouse wheel horizontal scroll for Similar Channels
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      el.scrollLeft += e.deltaY * 2
+    }
+    el.addEventListener("wheel", handleWheel, { passive: false })
+    return () => el.removeEventListener("wheel", handleWheel)
+  }, [scrollContainerRef.current])
 
   const filteredChannels = useMemo(() => {
     return channelsState.filter((channel) => {
@@ -200,13 +242,13 @@ export function Dashboard() {
       prev.map((c) =>
         c.id === selectedChannelId
           ? {
-              ...c,
-              category: tempValues.category as NicheCategory,
-              subCategory: tempValues.subCategory,
-              contentType: tempValues.contentType as ContentType,
-              tracking: tempValues.tracking as TrackingStatus,
-              verified: tempValues.verified,
-            }
+            ...c,
+            category: tempValues.category as NicheCategory,
+            subCategory: tempValues.subCategory,
+            contentType: tempValues.contentType as ContentType,
+            tracking: tempValues.tracking as TrackingStatus,
+            verified: tempValues.verified,
+          }
           : c
       )
     )
@@ -230,12 +272,12 @@ export function Dashboard() {
       prev.map((c) =>
         c.id === selectedChannelId
           ? {
-              ...c,
-              ...(field === "category" ? { category: value as NicheCategory } : {}),
-              ...(field === "subCategory" ? { subCategory: value } : {}),
-              ...(field === "contentType" ? { contentType: value as ContentType } : {}),
-              ...(field === "tracking" ? { tracking: value as TrackingStatus } : {}),
-            }
+            ...c,
+            ...(field === "category" ? { category: value as NicheCategory } : {}),
+            ...(field === "subCategory" ? { subCategory: value } : {}),
+            ...(field === "contentType" ? { contentType: value as ContentType } : {}),
+            ...(field === "tracking" ? { tracking: value as TrackingStatus } : {}),
+          }
           : c
       )
     )
@@ -303,7 +345,7 @@ export function Dashboard() {
       </aside>
 
       {/* ── RIGHT PANEL ── */}
-      <main className="flex-1 flex flex-col bg-background overflow-y-auto overflow-x-hidden">
+      <main className="flex-1 flex flex-col h-full bg-background overflow-y-auto">
 
         {/* A) CHANNEL SETTINGS HORIZONTAL BAR — redesigned, full-width */}
         <div className="flex-shrink-0 px-5 border-b border-border bg-muted/20" style={{ minHeight: "56px" }}>
@@ -360,11 +402,10 @@ export function Dashboard() {
                     <button
                       key={opt}
                       onClick={() => { setDateFilter(opt); if (opt !== "Custom Range") setShowDateDropdown(false) }}
-                      className={`w-full text-left px-4 py-2 text-xs transition-colors ${
-                        dateFilter === opt
-                          ? "text-purple-400 font-semibold bg-purple-500/10"
-                          : "text-foreground hover:bg-purple-500/10 hover:text-purple-300"
-                      }`}
+                      className={`w-full text-left px-4 py-2 text-xs transition-colors ${dateFilter === opt
+                        ? "text-purple-400 font-semibold bg-purple-500/10"
+                        : "text-foreground hover:bg-purple-500/10 hover:text-purple-300"
+                        }`}
                     >
                       {opt}
                     </button>
@@ -388,10 +429,10 @@ export function Dashboard() {
             {/* Inline searchable dropdowns — always active */}
             <div className="flex items-stretch flex-nowrap flex-1" ref={settingsBarRef}>
               {([
-                { key: "category" as const,    label: "Category",     options: CATEGORIES,        value: selectedChannel.category || "—" },
-                { key: "subCategory" as const, label: "Sub-Category", options: SUB_CATEGORIES,    value: selectedChannel.subCategory || "—" },
-                { key: "contentType" as const, label: "Type",         options: CONTENT_TYPES,     value: selectedChannel.contentType || "—" },
-                { key: "tracking" as const,    label: "Tracking",     options: TRACKING_STATUSES, value: selectedChannel.tracking || "—" },
+                { key: "category" as const, label: "Category", options: CATEGORIES, value: selectedChannel.category || "—" },
+                { key: "subCategory" as const, label: "Sub-Category", options: SUB_CATEGORIES, value: selectedChannel.subCategory || "—" },
+                { key: "contentType" as const, label: "Type", options: CONTENT_TYPES, value: selectedChannel.contentType || "—" },
+                { key: "tracking" as const, label: "Tracking", options: TRACKING_STATUSES, value: selectedChannel.tracking || "—" },
               ]).map(({ key, label, options, value }, idx, arr) => {
                 const isOpen = openField === key
                 const filtered = (options as readonly string[]).filter((o) =>
@@ -401,11 +442,11 @@ export function Dashboard() {
                 const dotColor = (k: string, opt: string): string => {
                   if (k === "contentType") {
                     if (opt === "Long-Form") return "bg-blue-400"
-                    if (opt === "Shorts")    return "bg-red-400"
+                    if (opt === "Shorts") return "bg-red-400"
                     return "bg-purple-400"
                   }
                   if (k === "tracking") return opt === "YES" ? "bg-green-400" : "bg-zinc-500"
-                  const palette = ["bg-purple-400","bg-blue-400","bg-amber-400","bg-emerald-400","bg-pink-400","bg-cyan-400","bg-orange-400","bg-rose-400","bg-teal-400","bg-violet-400","bg-lime-400","bg-indigo-400","bg-sky-400","bg-fuchsia-400","bg-green-400","bg-yellow-400"]
+                  const palette = ["bg-purple-400", "bg-blue-400", "bg-amber-400", "bg-emerald-400", "bg-pink-400", "bg-cyan-400", "bg-orange-400", "bg-rose-400", "bg-teal-400", "bg-violet-400", "bg-lime-400", "bg-indigo-400", "bg-sky-400", "bg-fuchsia-400", "bg-green-400", "bg-yellow-400"]
                   return palette[(options as readonly string[]).indexOf(opt) % palette.length]
                 }
                 return (
@@ -414,9 +455,8 @@ export function Dashboard() {
                       <span className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">{label}</span>
                       <button
                         onClick={() => { setOpenField(isOpen ? null : key); setFieldSearch("") }}
-                        className={`flex items-center gap-1.5 text-[13px] font-medium transition-colors w-full text-left rounded px-1 py-0.5 -mx-1 ${
-                          isOpen ? "text-purple-400 bg-white/5 ring-1 ring-purple-500/40" : "text-foreground hover:text-purple-400 hover:bg-white/5"
-                        }`}
+                        className={`flex items-center gap-1.5 text-[13px] font-medium transition-colors w-full text-left rounded px-1 py-0.5 -mx-1 ${isOpen ? "text-purple-400 bg-white/5 ring-1 ring-purple-500/40" : "text-foreground hover:text-purple-400 hover:bg-white/5"
+                          }`}
                       >
                         <span className={key === "tracking" ? (value === "YES" ? "text-green-400" : "text-red-400") : ""}>
                           {value}
@@ -444,9 +484,8 @@ export function Dashboard() {
                               <button
                                 key={opt}
                                 onClick={() => handleFieldChange(key, opt)}
-                                className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${
-                                  opt === value ? "bg-purple-500/10" : "hover:bg-white/5"
-                                }`}
+                                className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${opt === value ? "bg-purple-500/10" : "hover:bg-white/5"
+                                  }`}
                               >
                                 <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor(key, opt)}`} />
                                 <span className={opt === value ? "text-purple-300 font-medium" : "text-foreground"}>
@@ -493,7 +532,7 @@ export function Dashboard() {
 
 
         {/* C+D) TWO-COLUMN: VIDEO PLAYER (left 60%) + INFO CARDS (right 40%) */}
-        <div className="flex flex-shrink-0 px-5 pt-4 pb-4 gap-4">
+        <div className="flex h-auto px-5 pt-4 pb-4 gap-4 overflow-hidden flex-shrink-0">
 
           {/* LEFT — Video Player */}
           <div className="w-[60%] flex flex-col">
@@ -509,30 +548,50 @@ export function Dashboard() {
           </div>
 
           {/* RIGHT — Info Cards stacked vertically, fills height of left column */}
-          <div className="w-[40%] flex flex-col h-full gap-3">
+          <div className="w-[40%] flex flex-col h-auto gap-3 overflow-y-auto pr-2">
 
             {/* Channel Identity Card — @handle, badges, YouTube link */}
             <div className="flex flex-col gap-2 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <h2 className="text-lg font-bold text-foreground leading-tight">{selectedChannel.handle}</h2>
+                  <h2 className="text-lg font-bold text-foreground leading-tight">
+                    {selectedChannel.handle}
+                    {selectedChannel.fullName && ` · ${selectedChannel.fullName}`}
+                  </h2>
                   <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                      selectedChannel.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
-                    }`}>{selectedChannel.type}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${selectedChannel.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
+                      }`}>{selectedChannel.type}</span>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/20 text-primary">
                       {selectedChannel.category}
                     </span>
                     <span className="text-[10px] text-muted-foreground italic">{selectedChannel.subCategory}</span>
                   </div>
                 </div>
-                <button
-                  onClick={() => window.open(`https://youtube.com/${selectedChannel.handle}`, "_blank")}
-                  className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 font-medium transition-colors flex-shrink-0 mt-0.5"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  YouTube
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => toggleFavourite(selectedChannel.id)}
+                    className="flex items-center justify-center transition-colors hover:scale-110"
+                    title={favourites.includes(selectedChannel.id) ? "Remove from Favourites" : "Add to Favourites"}
+                  >
+                    <Star
+                      className={`w-5 h-5 transition-colors ${favourites.includes(selectedChannel.id) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground hover:text-foreground'}`}
+                    />
+                  </button>
+                  {selectedChannel.ytUrl ? (
+                    <button
+                      onClick={() => window.open(selectedChannel.ytUrl, "_blank")}
+                      className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 font-medium transition-colors flex-shrink-0"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      YouTube
+                    </button>
+                  ) : (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground font-medium flex-shrink-0 cursor-not-allowed">
+                      <ExternalLink className="w-3 h-3 opacity-50" />
+                      No URL
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="h-px bg-border" />
             </div>
@@ -575,8 +634,8 @@ export function Dashboard() {
               <span className="text-sm font-bold text-foreground">{channelInfo.country}</span>
             </div>
 
-            {/* Verified / Remarks card — flex-1 fills all remaining space */}
-            <div className="flex flex-col gap-2 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-1 min-h-[80px]">
+            {/* Verified / Remarks card */}
+            <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
               <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Verified / Remarks</span>
               {isEditMode ? (
                 <textarea
@@ -597,27 +656,38 @@ export function Dashboard() {
           </div>
         </div>
 
+        {/* Spacer to push Similar Channels to the bottom */}
+        <div className="flex-none h-4" />
+
         {/* E) SIMILAR CHANNELS STRIP — 16:9 thumbnail cards */}
-        <div className="flex-shrink-0 px-5 pb-5">
+        <div className="flex-shrink-0 px-5 pb-4 overflow-visible relative z-10">
           <p className="text-[11px] text-muted-foreground uppercase tracking-widest mb-3">
             Similar Channels
           </p>
           {similarChannels.length === 0 ? (
             <p className="text-sm text-muted-foreground italic">No similar channels found.</p>
           ) : (
-            <div style={{ display: "flex", gap: "12px", overflowX: "scroll", paddingBottom: "8px" }}>
-              {similarChannels.map((ch) => {
-                const thumbUrl = ch.latestVideoId
-                  ? `https://img.youtube.com/vi/${ch.latestVideoId}/hqdefault.jpg`
-                  : null
+            <div
+              ref={scrollContainerRef}
+              className="flex flex-nowrap items-start overflow-x-scroll overflow-y-visible gap-3 pb-3 mt-4"
+              onMouseLeave={() => setHoveredSimilarId(null)}
+            >
+              {similarChannels.slice(0, 4).map((ch) => {
+                const thumbUrl = ch.thumbnailUrl || `https://picsum.photos/seed/${ch.id}/480/270`
                 return (
                   <button
                     key={ch.id}
                     onClick={() => handleSelectChannel(ch.id)}
-                    className="group bg-muted/60 border border-border rounded-xl overflow-hidden text-left hover:border-primary/60 hover:scale-[1.03] transition-all duration-200 origin-bottom flex-1 min-w-[220px] max-w-[300px]"
+                    onMouseEnter={() => setHoveredSimilarId(ch.id)}
+                    className={`group bg-muted/60 border border-border rounded-xl overflow-visible text-left transition-all duration-200 cursor-pointer flex-shrink-0 min-w-[280px] ${hoveredSimilarId === null
+                      ? "scale-100 opacity-100"
+                      : hoveredSimilarId === ch.id
+                        ? "scale-105 z-10 shadow-xl border-primary/60"
+                        : "scale-95 opacity-70"
+                      }`}
                   >
                     {/* 16:9 Thumbnail */}
-                    <div className="w-full aspect-video relative overflow-hidden bg-zinc-900">
+                    <div className="w-full aspect-video relative overflow-visible bg-zinc-900">
                       {/* Letter fallback always rendered underneath */}
                       <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900">
                         <span className="text-3xl font-bold text-white/30">
@@ -625,14 +695,12 @@ export function Dashboard() {
                         </span>
                       </div>
                       {/* YouTube thumbnail on top — hides via onError if unavailable */}
-                      {thumbUrl && (
-                        <img
-                          src={thumbUrl}
-                          alt={ch.handle}
-                          className="absolute inset-0 w-full h-full object-cover"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
-                        />
-                      )}
+                      <img
+                        src={thumbUrl}
+                        alt={ch.handle}
+                        className="absolute inset-0 w-full aspect-video object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+                      />
                       {/* Hover overlay */}
                       <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                         <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
@@ -645,17 +713,16 @@ export function Dashboard() {
 
                     {/* Card body */}
                     <div className="p-3">
-                      <p className="font-bold text-foreground text-sm truncate">{ch.handle}</p>
-                      <p className="text-xs text-muted-foreground truncate mb-2">{ch.handle.replace("@", "")}</p>
-                      <div className="flex gap-1.5 flex-wrap mb-1">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                          ch.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
-                        }`}>{ch.type}</span>
+                      <p className="font-bold text-white text-sm truncate">{ch.handle}</p>
+                      <p className="text-xs text-muted-foreground truncate mb-2">{ch.fullName || ch.handle.replace("@", "")}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${ch.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
+                          }`}>{ch.type}</span>
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/20 text-primary">
                           {ch.category}
                         </span>
+                        <span className="text-xs italic text-muted-foreground">· {ch.subCategory}</span>
                       </div>
-                      <p className="text-[11px] text-muted-foreground italic">{ch.subCategory}</p>
                     </div>
                   </button>
                 )
@@ -665,6 +732,66 @@ export function Dashboard() {
         </div>
 
       </main>
+
+      {/* ── FAVOURITES PANEL & TOGGLE ── */}
+      <button
+        onClick={() => setIsFavouritesOpen(!isFavouritesOpen)}
+        className={`fixed top-1/2 -translate-y-1/2 bg-sidebar border border-border text-sidebar-foreground py-3 px-1 rounded-l-lg shadow-xl z-40 flex items-center justify-center transition-all duration-300 hover:bg-sidebar-accent ${isFavouritesOpen ? 'right-[280px]' : 'right-0 border-r-0'}`}
+      >
+        <span className="text-lg font-bold leading-none select-none">{isFavouritesOpen ? "»" : "«"}</span>
+      </button>
+
+      <div
+        className={`fixed top-0 right-0 h-full w-[280px] bg-sidebar border-l border-border shadow-2xl z-50 transform transition-transform duration-300 ease-in-out flex flex-col ${isFavouritesOpen ? "translate-x-0" : "translate-x-full"}`}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
+          <h2 className="text-lg font-bold text-sidebar-foreground flex items-center gap-2">
+            <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+            Favourites
+          </h2>
+          <button onClick={() => setIsFavouritesOpen(false)} className="text-muted-foreground hover:text-foreground">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {favourites.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center mt-4">
+              No favourites yet. Click <Star className="w-3 h-3 inline mx-1" /> to add channels.
+            </p>
+          ) : (
+            channelsState.filter(c => favourites.includes(c.id)).map(ch => (
+              <div key={ch.id} className="flex items-center justify-between bg-background border border-border p-2 rounded-lg group cursor-pointer hover:border-primary/50 transition-colors" onClick={() => { handleSelectChannel(ch.id); setIsFavouritesOpen(false); }}>
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 text-xs font-bold">
+                    {ch.handle.replace("@", "").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="overflow-hidden">
+                    <p className="text-sm font-bold truncate text-foreground">{ch.handle}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{ch.category}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleFavourite(ch.id); }}
+                  className="text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="p-4 border-t border-border flex-shrink-0">
+          <Button
+            onClick={exportFavouritesToExcel}
+            disabled={favourites.length === 0}
+            className="w-full bg-purple-600 hover:bg-purple-700 text-white gap-2 font-medium"
+          >
+            Export as Excel
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
