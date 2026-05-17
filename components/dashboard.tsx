@@ -3,6 +3,10 @@
 import { useState, useMemo, useRef, useEffect } from "react"
 import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star } from "lucide-react"
 import * as XLSX from "xlsx"
+import { format } from "date-fns"
+import type { DateRange } from "react-day-picker"
+import { DayPicker } from "react-day-picker"
+import "react-day-picker/style.css"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -71,14 +75,14 @@ const CHANNEL_INFO: Record<string, {
 }
 
 // Date filter options
-const DATE_FILTER_OPTIONS = ["All Time", "This Week", "This Month", "Last Month", "Last 3 Months", "Custom Range"] as const
+const DATE_FILTER_OPTIONS = ["All Time", "This Week", "This Month", "Custom Range"] as const
 type DateFilterOption = typeof DATE_FILTER_OPTIONS[number]
 
 function parseDateStr(str: string): Date | null {
   try { return new Date(str) } catch { return null }
 }
 
-function isInDateRange(sharedOn: string, filter: DateFilterOption, customFrom?: string, customTo?: string): boolean {
+function isInDateRange(sharedOn: string, filter: DateFilterOption, customRange?: DateRange): boolean {
   if (filter === "All Time") return true
   const d = parseDateStr(sharedOn)
   if (!d) return true
@@ -91,17 +95,9 @@ function isInDateRange(sharedOn: string, filter: DateFilterOption, customFrom?: 
   if (filter === "This Month") {
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
   }
-  if (filter === "Last Month") {
-    const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    return d.getMonth() === lm.getMonth() && d.getFullYear() === lm.getFullYear()
-  }
-  if (filter === "Last 3 Months") {
-    const cutoff = new Date(now.getFullYear(), now.getMonth() - 3, 1)
-    return d >= cutoff
-  }
   if (filter === "Custom Range") {
-    const from = customFrom ? new Date(customFrom) : null
-    const to = customTo ? new Date(customTo) : null
+    const from = customRange?.from ?? null
+    const to = customRange?.to ?? null
     if (from && d < from) return false
     if (to && d > to) return false
     return true
@@ -118,13 +114,29 @@ export function Dashboard() {
   const [showHandleDiff, setShowHandleDiff] = useState(false)
   const [dateFilter, setDateFilter] = useState<DateFilterOption>("All Time")
   const [showDateDropdown, setShowDateDropdown] = useState(false)
-  const [customFrom, setCustomFrom] = useState("")
-  const [customTo, setCustomTo] = useState("")
+  // Applied custom range (used for filtering)
+  const [customRange, setCustomRange] = useState<DateRange | undefined>(undefined)
+  // Draft range (in-picker, before Apply)
+  const [rangeDraft, setRangeDraft] = useState<DateRange | undefined>(undefined)
+  // Dual-calendar navigation: left panel month
+  const [calMonth, setCalMonth] = useState<Date>(() => {
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d
+  })
+  const [showMonthPicker, setShowMonthPicker] = useState<0 | 1 | null>(null)
   const dateDropdownRef = useRef<HTMLDivElement>(null)
   const settingsBarRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [openField, setOpenField] = useState<"category" | "subCategory" | "contentType" | "tracking" | null>(null)
   const [fieldSearch, setFieldSearch] = useState("")
+
+  // Filter mode state — empty string = "All" (no filter)
+  const [filterValues, setFilterValues] = useState({
+    category: "",
+    subCategory: "",
+    contentType: "",
+    tracking: "",
+  })
+  const activeFilterCount = Object.values(filterValues).filter(v => v !== "").length
 
   const [favourites, setFavourites] = useState<string[]>([])
   const [isFavouritesOpen, setIsFavouritesOpen] = useState(false)
@@ -194,13 +206,20 @@ export function Dashboard() {
 
   const filteredChannels = useMemo(() => {
     return channelsState.filter((channel) => {
-      // Toggle filters: union mode — if either ON, show only matching channels
+      // Toggle filters
       const unavailableMatch = showUnavailable && channel.isUnavailable === true
       const diffMatch = showHandleDiff && channel.originalHandle !== channel.currentHandle
       if (showUnavailable || showHandleDiff) {
         if (!unavailableMatch && !diffMatch) return false
       }
-      if (!isInDateRange(channel.sharedOn, dateFilter, customFrom, customTo)) return false
+      if (!isInDateRange(channel.sharedOn, dateFilter, customRange)) return false
+      // Dropdown filters (AND logic — only applied in filter mode)
+      if (!isEditMode) {
+        if (filterValues.category && channel.category !== filterValues.category) return false
+        if (filterValues.subCategory && channel.subCategory !== filterValues.subCategory) return false
+        if (filterValues.contentType && channel.type !== filterValues.contentType) return false
+        if (filterValues.tracking && channel.tracking !== filterValues.tracking) return false
+      }
       if (!searchQuery.trim()) return true
       const query = searchQuery.toLowerCase()
       return (
@@ -209,7 +228,7 @@ export function Dashboard() {
         channel.type.toLowerCase().includes(query)
       )
     })
-  }, [channelsState, searchQuery, showUnavailable, showHandleDiff, dateFilter, customFrom, customTo])
+  }, [channelsState, searchQuery, showUnavailable, showHandleDiff, dateFilter, customRange, filterValues, isEditMode])
 
   const selectedChannel = channelsState.find((c) => c.id === selectedChannelId)!
   const channelInfo = CHANNEL_INFO[selectedChannelId] ?? {
@@ -230,9 +249,9 @@ export function Dashboard() {
       .then(data => {
         if (data.videoId) setVideoData(data)
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setVideoLoading(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChannelId])
 
   const handleSelectChannel = (id: string) => {
@@ -289,10 +308,15 @@ export function Dashboard() {
     setIsEditMode(false)
   }
 
-  // Instantly persist a single field change without entering edit mode
+  // Edit mode: update temp value
   const handleFieldChange = (field: "category" | "subCategory" | "contentType" | "tracking", value: string) => {
-    if (!isEditMode) return
     setTempValues((p) => ({ ...p, [field]: value }))
+    setOpenField(null)
+  }
+
+  // Filter mode: update filter value (empty = All)
+  const handleFilterChange = (field: "category" | "subCategory" | "contentType" | "tracking", value: string) => {
+    setFilterValues((p) => ({ ...p, [field]: value }))
     setOpenField(null)
   }
 
@@ -311,7 +335,7 @@ export function Dashboard() {
       {/* ── LEFT SIDEBAR ── */}
       <aside className="w-[320px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden">
         {/* Logo */}
-        <div className="flex-shrink-0 p-4 border-b border-sidebar-border">
+        <div className="flex-shrink-0 h-14 flex items-center px-5 border-b border-sidebar-border">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <Youtube className="w-5 h-5 text-primary-foreground" />
@@ -359,8 +383,8 @@ export function Dashboard() {
       <main className="flex-1 flex flex-col h-full bg-background overflow-hidden">
 
         {/* A) CHANNEL SETTINGS HORIZONTAL BAR — redesigned, full-width */}
-        <div className="flex-shrink-0 px-5 border-b border-border bg-muted/20" style={{ minHeight: "56px" }}>
-          <div className="flex items-center h-full gap-0 flex-nowrap" style={{ minHeight: "56px" }}>
+        <div className="flex-shrink-0 h-14 px-5 border-b border-border bg-muted/20">
+          <div className="flex items-center h-full gap-0 flex-nowrap">
 
             {/* Toggle 1: Unavailable Handle (red when ON) */}
             <div
@@ -399,57 +423,194 @@ export function Dashboard() {
               <div className="flex flex-col gap-0.5">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Date Added</span>
                 <button
-                  onClick={() => setShowDateDropdown((v) => !v)}
+                  onClick={() => { setRangeDraft(customRange); setShowDateDropdown((v) => !v) }}
                   className="flex items-center gap-1.5 text-[13px] font-medium text-foreground hover:text-purple-400 transition-colors"
                 >
                   <Calendar className="w-3 h-3 text-muted-foreground" />
-                  {dateFilter}
+                  {dateFilter === "Custom Range" && customRange?.from
+                    ? customRange.to
+                      ? `${format(customRange.from, "MMM d")} – ${format(customRange.to, "MMM d")}`
+                      : format(customRange.from, "MMM d")
+                    : dateFilter}
                   <ChevronDown className="w-3 h-3 text-muted-foreground" />
                 </button>
               </div>
               {showDateDropdown && (
-                <div className="absolute top-full left-0 mt-2 z-50 bg-popover border border-border rounded-xl shadow-2xl min-w-[200px] py-1.5 overflow-hidden">
-                  {DATE_FILTER_OPTIONS.map((opt) => (
-                    <button
-                      key={opt}
-                      onClick={() => { setDateFilter(opt); if (opt !== "Custom Range") setShowDateDropdown(false) }}
-                      className={`w-full text-left px-4 py-2 text-xs transition-colors ${dateFilter === opt
-                        ? "text-purple-400 font-semibold bg-purple-500/10"
-                        : "text-foreground hover:bg-purple-500/10 hover:text-purple-300"
-                        }`}
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                  {dateFilter === "Custom Range" && (
-                    <div className="px-4 py-3 border-t border-border flex flex-col gap-2">
-                      <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-                        className="h-7 text-xs bg-background border border-border rounded-lg px-2 text-foreground w-full focus:outline-none focus:ring-1 focus:ring-purple-500" />
-                      <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-                        className="h-7 text-xs bg-background border border-border rounded-lg px-2 text-foreground w-full focus:outline-none focus:ring-1 focus:ring-purple-500" />
-                      <button onClick={() => setShowDateDropdown(false)}
-                        className="h-7 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded-lg font-medium transition-colors">Apply</button>
-                    </div>
-                  )}
+                <div className="absolute top-full left-0 mt-2 z-50 bg-popover border border-border rounded-xl shadow-2xl py-1.5 overflow-hidden">
+                  {/* Preset options */}
+                  <div className="min-w-[200px]">
+                    {DATE_FILTER_OPTIONS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => {
+                          setDateFilter(opt)
+                          if (opt !== "Custom Range") setShowDateDropdown(false)
+                        }}
+                        className={`w-full text-left px-4 py-2 text-xs transition-colors ${dateFilter === opt
+                            ? "text-purple-400 font-semibold bg-purple-500/10"
+                            : "text-foreground hover:bg-purple-500/10 hover:text-purple-300"
+                          }`}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Dual-month calendar — shown only for Custom Range */}
+                  {dateFilter === "Custom Range" && (() => {
+                    // Right panel is always one month ahead of left
+                    const rightMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1)
+                    const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+                    const thisYear = new Date().getFullYear()
+                    const years = Array.from({ length: 10 }, (_, i) => thisYear - 5 + i)
+
+                    const navMonth = (delta: number) => {
+                      setCalMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1))
+                      setShowMonthPicker(null)
+                    }
+                    const jumpTo = (year: number, month: number) => {
+                      setCalMonth(new Date(year, month, 1))
+                      setShowMonthPicker(null)
+                    }
+
+                    return (
+                      <div className="border-t border-border pt-3 pb-2 px-3">
+                        {/* Dual-panel header with arrows */}
+                        <div className="flex gap-5 mb-2">
+                          {([calMonth, rightMonth] as const).map((m, panelIdx) => (
+                            <div key={panelIdx} className="flex-1 flex items-center justify-between">
+                              {/* prev arrow — only on left panel */}
+                              {panelIdx === 0 ? (
+                                <button onClick={() => navMonth(-1)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors">
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5"><path d="M15 18l-6-6 6-6" /></svg>
+                                </button>
+                              ) : <div className="w-6" />}
+
+                              {/* Clickable month/year header */}
+                              <div className="relative">
+                                <button
+                                  onClick={() => setShowMonthPicker(p => p === panelIdx ? null : panelIdx as 0 | 1)}
+                                  className="text-[13px] font-semibold text-foreground hover:text-purple-400 transition-colors flex items-center gap-1"
+                                >
+                                  {format(m, "MMMM yyyy")}
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className={`w-3 h-3 transition-transform ${showMonthPicker === panelIdx ? "rotate-180" : ""}`}><path d="M6 9l6 6 6-6" /></svg>
+                                </button>
+                                {showMonthPicker === panelIdx && (
+                                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-[60] bg-popover border border-border rounded-xl shadow-2xl p-2 w-52 max-h-64 overflow-y-auto">
+                                    {years.map(yr => (
+                                      <div key={yr}>
+                                        <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest px-2 pt-2 pb-1">{yr}</p>
+                                        <div className="grid grid-cols-3 gap-1">
+                                          {MONTHS.map((mn, mi) => {
+                                            const target = new Date(yr, panelIdx === 1 ? mi - 1 : mi, 1)
+                                            const isSel = target.getMonth() === calMonth.getMonth() && target.getFullYear() === calMonth.getFullYear()
+                                            return (
+                                              <button
+                                                key={mn}
+                                                onClick={() => jumpTo(yr, panelIdx === 1 ? mi - 1 : mi)}
+                                                className={`text-[11px] py-1 px-1 rounded-md transition-colors ${isSel ? "bg-purple-600 text-white font-semibold" : "text-foreground hover:bg-purple-500/20 hover:text-purple-300"
+                                                  }`}
+                                              >{mn.slice(0, 3)}</button>
+                                            )
+                                          })}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* next arrow — only on right panel */}
+                              {panelIdx === 1 ? (
+                                <button onClick={() => navMonth(1)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors">
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5"><path d="M9 18l6-6-6-6" /></svg>
+                                </button>
+                              ) : <div className="w-6" />}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* DayPicker — controlled month, no built-in nav */}
+                        <DayPicker
+                          mode="range"
+                          numberOfMonths={2}
+                          month={calMonth}
+                          onMonthChange={setCalMonth}
+                          selected={rangeDraft}
+                          onSelect={setRangeDraft}
+                          hideNavigation
+                          classNames={{
+                            root: "text-foreground text-xs",
+                            months: "flex gap-5",
+                            month: "flex flex-col gap-1",
+                            month_caption: "hidden",
+                            weekdays: "flex",
+                            weekday: "flex-1 text-center text-[10px] text-muted-foreground font-normal py-1 uppercase",
+                            week: "flex w-full mt-0.5",
+                            day: "flex-1 flex items-center justify-center",
+                            day_button: "w-7 h-7 text-xs rounded-md hover:bg-purple-500/20 hover:text-purple-300 transition-colors font-normal text-foreground",
+                            range_start: "bg-purple-600 rounded-l-md [&>button]:text-white [&>button]:font-semibold",
+                            range_middle: "bg-purple-500/20 rounded-none",
+                            range_end: "bg-purple-600 rounded-r-md [&>button]:text-white [&>button]:font-semibold",
+                            today: "[&>button]:font-bold [&>button]:text-purple-400",
+                            outside: "opacity-30",
+                            disabled: "opacity-20 cursor-not-allowed",
+                          }}
+                        />
+
+                        <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-border">
+                          <p className="text-[11px] text-muted-foreground">
+                            {rangeDraft?.from
+                              ? rangeDraft.to
+                                ? `${format(rangeDraft.from, "MMM d")} – ${format(rangeDraft.to, "MMM d, yyyy")}`
+                                : `${format(rangeDraft.from, "MMM d, yyyy")} – pick end date`
+                              : "Pick start date"}
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => { setRangeDraft(undefined); setCustomRange(undefined) }}
+                              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded"
+                            >Clear</button>
+                            <button
+                              disabled={!rangeDraft?.from}
+                              onClick={() => { setCustomRange(rangeDraft); setShowDateDropdown(false) }}
+                              className="h-6 px-3 text-[11px] bg-purple-600 hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-md font-medium transition-colors"
+                            >Apply</button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
             </div>
 
             <div className="w-px self-stretch bg-border flex-shrink-0" />
 
-            {/* Inline searchable dropdowns — only active in edit mode */}
+            {/* Inline searchable dropdowns — FILTER MODE or EDIT MODE */}
             <div className="flex items-stretch flex-nowrap flex-1" ref={settingsBarRef}>
               {([
-                { key: "category" as const, label: "Category", options: CATEGORIES, value: (isEditMode ? tempValues.category : selectedChannel.category) || "—" },
-                { key: "subCategory" as const, label: "Sub-Category", options: SUB_CATEGORIES, value: (isEditMode ? tempValues.subCategory : selectedChannel.subCategory) || "—" },
-                { key: "contentType" as const, label: "Type", options: CONTENT_TYPES, value: (isEditMode ? tempValues.contentType : selectedChannel.contentType) || "—" },
-                { key: "tracking" as const, label: "Tracking", options: TRACKING_STATUSES, value: (isEditMode ? tempValues.tracking : selectedChannel.tracking) || "—" },
-              ]).map(({ key, label, options, value }, idx, arr) => {
+                { key: "category" as const, label: "Category", options: CATEGORIES as readonly string[] },
+                { key: "subCategory" as const, label: "Sub-Category", options: SUB_CATEGORIES as readonly string[] },
+                { key: "contentType" as const, label: "Type", options: CONTENT_TYPES as readonly string[] },
+                { key: "tracking" as const, label: "Tracking", options: TRACKING_STATUSES as readonly string[] },
+              ]).map(({ key, label, options }, idx, arr) => {
                 const isOpen = openField === key
-                const filtered = (options as readonly string[]).filter((o) =>
+
+                // In edit mode: show / edit channel's tempValues
+                // In filter mode: show current filter value ("" = All)
+                const editValue = tempValues[key as keyof typeof tempValues] as string
+                const filterValue = filterValues[key as keyof typeof filterValues]
+                const displayValue = isEditMode
+                  ? editValue || "—"
+                  : filterValue || "All"
+
+                const isActive = !isEditMode && filterValue !== ""
+
+                const filtered = options.filter((o) =>
                   o.toLowerCase().includes(isOpen ? fieldSearch.toLowerCase() : "")
                 )
-                // Dot colors per option
+
                 const dotColor = (k: string, opt: string): string => {
                   if (k === "contentType") {
                     if (opt === "Long-Form") return "bg-blue-400"
@@ -458,22 +619,30 @@ export function Dashboard() {
                   }
                   if (k === "tracking") return opt === "YES" ? "bg-green-400" : "bg-zinc-500"
                   const palette = ["bg-purple-400", "bg-blue-400", "bg-amber-400", "bg-emerald-400", "bg-pink-400", "bg-cyan-400", "bg-orange-400", "bg-rose-400", "bg-teal-400", "bg-violet-400", "bg-lime-400", "bg-indigo-400", "bg-sky-400", "bg-fuchsia-400", "bg-green-400", "bg-yellow-400"]
-                  return palette[(options as readonly string[]).indexOf(opt) % palette.length]
+                  return palette[options.indexOf(opt) % palette.length]
                 }
+
                 return (
                   <div key={key} className="flex-1 flex items-stretch">
                     <div className="relative flex-1 px-3 flex flex-col justify-center">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-widest mb-0.5">{label}</span>
+                      <span className={`text-[10px] uppercase tracking-widest mb-0.5 ${isActive ? "text-purple-400" : "text-muted-foreground"}`}>{label}</span>
                       <button
-                        disabled={!isEditMode}
                         onClick={() => { setOpenField(isOpen ? null : key); setFieldSearch("") }}
-                        className={`flex items-center gap-1.5 text-[13px] font-medium transition-colors w-full text-left rounded px-1 py-0.5 -mx-1 ${!isEditMode ? "text-foreground opacity-70 cursor-not-allowed" : isOpen ? "text-purple-400 bg-white/5 ring-1 ring-purple-500/40" : "text-foreground hover:text-purple-400 hover:bg-white/5"
+                        className={`flex items-center gap-1.5 text-[13px] font-medium transition-colors w-full text-left rounded px-1 py-0.5 -mx-1 ${isOpen
+                            ? "text-purple-400 bg-white/5 ring-1 ring-purple-500/40"
+                            : isActive
+                              ? "text-purple-300 hover:text-purple-400 hover:bg-white/5"
+                              : "text-foreground hover:text-purple-400 hover:bg-white/5"
                           }`}
                       >
-                        <span className={key === "tracking" ? (value === "YES" ? "text-green-400" : "text-red-400") : ""}>
-                          {value}
+                        <span className={
+                          isEditMode && key === "tracking"
+                            ? (editValue === "YES" ? "text-green-400" : "text-red-400")
+                            : ""
+                        }>
+                          {displayValue}
                         </span>
-                        {isEditMode && <ChevronDown className={`w-3 h-3 ml-auto transition-transform ${isOpen ? "rotate-180 text-purple-400" : "text-muted-foreground"}`} />}
+                        <ChevronDown className={`w-3 h-3 ml-auto transition-transform ${isOpen ? "rotate-180 text-purple-400" : "text-muted-foreground"}`} />
                       </button>
                       {isOpen && (
                         <div className="absolute top-full left-0 mt-2 z-50 bg-popover border border-border rounded-xl shadow-2xl min-w-[200px] flex flex-col overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100">
@@ -490,24 +659,39 @@ export function Dashboard() {
                             </div>
                           </div>
                           <div className="max-h-60 overflow-y-auto py-1">
-                            {filtered.length === 0 ? (
-                              <p className="text-xs text-muted-foreground px-4 py-2">No results</p>
-                            ) : filtered.map((opt) => (
+                            {/* "All" option — only for category & subCategory in filter mode */}
+                            {!isEditMode && (key === "category" || key === "subCategory") && (
                               <button
-                                key={opt}
-                                onClick={() => handleFieldChange(key, opt)}
-                                className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${opt === value ? "bg-purple-500/10" : "hover:bg-white/5"
+                                onClick={() => handleFilterChange(key, "")}
+                                className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${filterValue === "" ? "bg-purple-500/10" : "hover:bg-white/5"
                                   }`}
                               >
-                                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor(key, opt)}`} />
-                                <span className={opt === value ? "text-purple-300 font-medium" : "text-foreground"}>
-                                  {opt}
+                                <span className="w-2 h-2 rounded-full flex-shrink-0 bg-muted-foreground/40" />
+                                <span className={filterValue === "" ? "text-purple-300 font-medium" : "text-muted-foreground"}>
+                                  All
                                 </span>
-                                {opt === value && (
-                                  <span className="ml-auto text-purple-400 text-xs">✓</span>
-                                )}
+                                {filterValue === "" && <span className="ml-auto text-purple-400 text-xs">✓</span>}
                               </button>
-                            ))}
+                            )}
+                            {filtered.length === 0 ? (
+                              <p className="text-xs text-muted-foreground px-4 py-2">No results</p>
+                            ) : filtered.map((opt) => {
+                              const isSelected = isEditMode ? opt === editValue : opt === filterValue
+                              return (
+                                <button
+                                  key={opt}
+                                  onClick={() => isEditMode ? handleFieldChange(key, opt) : handleFilterChange(key, opt)}
+                                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${isSelected ? "bg-purple-500/10" : "hover:bg-white/5"
+                                    }`}
+                                >
+                                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor(key, opt)}`} />
+                                  <span className={isSelected ? "text-purple-300 font-medium" : "text-foreground"}>
+                                    {opt}
+                                  </span>
+                                  {isSelected && <span className="ml-auto text-purple-400 text-xs">✓</span>}
+                                </button>
+                              )
+                            })}
                           </div>
                         </div>
                       )}
@@ -518,8 +702,13 @@ export function Dashboard() {
               })}
             </div>
 
-            {/* Edit / Save / Cancel only — Verified/Remarks moved to info column */}
+            {/* Edit / Save / Cancel + active filter badge */}
             <div className="flex items-center gap-2 px-4 flex-shrink-0">
+              {!isEditMode && activeFilterCount > 0 && (
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] font-bold flex-shrink-0">
+                  {activeFilterCount}
+                </span>
+              )}
               {isEditMode ? (
                 <>
                   <Button size="sm" onClick={handleSave}
@@ -576,7 +765,7 @@ export function Dashboard() {
                       </div>
                     </div>
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/70 backdrop-blur-sm rounded-full px-3 py-1">
-                      <svg viewBox="0 0 24 24" fill="#FF0000" className="w-3.5 h-3.5"><path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z"/></svg>
+                      <svg viewBox="0 0 24 24" fill="#FF0000" className="w-3.5 h-3.5"><path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z" /></svg>
                       <span className="text-white text-xs font-medium">Watch on YouTube</span>
                     </div>
                     <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent">
@@ -716,7 +905,7 @@ export function Dashboard() {
           ) : (
             <div
               ref={scrollContainerRef}
-              className="flex flex-nowrap items-start overflow-x-scroll overflow-y-visible gap-3 py-4"
+              className="flex flex-nowrap pl-2 items-start overflow-x-scroll overflow-y-visible gap-3 py-4"
               onMouseLeave={() => setHoveredSimilarId(null)}
             >
               {similarChannels.slice(0, 4).map((ch) => {
