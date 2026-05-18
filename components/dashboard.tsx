@@ -910,7 +910,11 @@ export function Dashboard() {
               onMouseLeave={() => setHoveredSimilarId(null)}
             >
               {similarChannels.slice(0, 6).map(ch => (
-                <SimilarChannelCard key={ch.id} channel={ch} />
+                <SimilarChannelCard 
+                  key={ch.id} 
+                  channel={ch} 
+                  onSelect={(id) => handleSelectChannel(id)}
+                />
               ))}
             </div>
           )}

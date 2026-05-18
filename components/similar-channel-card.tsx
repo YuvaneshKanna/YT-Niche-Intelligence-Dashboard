@@ -5,9 +5,10 @@ import type { Channel } from "@/lib/constants"
 
 interface SimilarChannelCardProps {
     channel: Channel
+    onSelect: (id: string) => void
 }
 
-export function SimilarChannelCard({ channel }: SimilarChannelCardProps) {
+export function SimilarChannelCard({ channel, onSelect }: SimilarChannelCardProps) {
     const [videoId, setVideoId] = useState<string | null>(null)
     const [thumbnail, setThumbnail] = useState<string | null>(null)
     const [isHovered, setIsHovered] = useState(false)
@@ -36,10 +37,10 @@ export function SimilarChannelCard({ channel }: SimilarChannelCardProps) {
 
     return (
         <div
-            className="flex-shrink-0 w-[280px] rounded-xl overflow-hidden bg-muted/60 border border-border cursor-pointer group relative transition-all duration-200 scale-100 group-hover/strip:scale-95 hover:!scale-105 hover:z-10"
+            className="flex-shrink-0 w-[calc(25%-12px)] rounded-xl overflow-hidden bg-muted/60 border border-border cursor-pointer group relative transition-all duration-200 scale-100 group-hover/strip:scale-95 hover:!scale-105 hover:z-10"
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
-            onClick={() => channel.ytUrl && window.open(channel.ytUrl, '_blank')}
+            onClick={() => onSelect(channel.id)}
         >
             {/* 16:9 video area */}
             <div className="relative w-full" style={{ aspectRatio: '16/9' }}>
@@ -78,7 +79,6 @@ export function SimilarChannelCard({ channel }: SimilarChannelCardProps) {
             {/* Channel info */}
             <div className="px-3 py-2">
                 <p className="text-sm font-semibold text-foreground truncate">{channel.handle}</p>
-                <p className="text-xs text-muted-foreground truncate">{channel.handle?.replace('@', '')}</p>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${channel.type === 'Shorts' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
                         }`}>{channel.type}</span>
