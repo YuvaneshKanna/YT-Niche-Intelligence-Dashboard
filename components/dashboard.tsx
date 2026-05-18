@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
-
+import { SimilarChannelCard } from "@/components/similar-channel-card"
 
 import {
   type Channel,
@@ -909,61 +909,9 @@ export function Dashboard() {
               className="flex flex-nowrap pl-2 items-start overflow-x-scroll overflow-y-visible gap-3 py-4"
               onMouseLeave={() => setHoveredSimilarId(null)}
             >
-              {similarChannels.slice(0, 4).map((ch) => {
-                const thumbUrl = ch.thumbnailUrl || `https://picsum.photos/seed/${ch.id}/480/270`
-                return (
-                  <button
-                    key={ch.id}
-                    onClick={() => handleSelectChannel(ch.id)}
-                    onMouseEnter={() => setHoveredSimilarId(ch.id)}
-                    className={`group bg-muted/60 border border-border rounded-xl overflow-visible text-left transition-all duration-200 cursor-pointer flex-shrink-0 min-w-[280px] ${hoveredSimilarId === null
-                      ? "scale-100 opacity-100"
-                      : hoveredSimilarId === ch.id
-                        ? "scale-105 z-10 shadow-xl border-primary/60"
-                        : "scale-95 opacity-70"
-                      }`}
-                  >
-                    {/* 16:9 Thumbnail */}
-                    <div className="w-full aspect-video relative overflow-hidden rounded-t-xl bg-zinc-900">
-                      {/* Letter fallback always rendered underneath */}
-                      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900">
-                        <span className="text-3xl font-bold text-white/30">
-                          {ch.handle.replace("@", "").charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                      {/* YouTube thumbnail on top — hides via onError if unavailable */}
-                      <img
-                        src={thumbUrl}
-                        alt={ch.handle}
-                        className="absolute inset-0 w-full aspect-video object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
-                      />
-                      {/* Hover overlay */}
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                        <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                          <svg viewBox="0 0 24 24" fill="white" className="w-5 h-5 ml-0.5">
-                            <path d="M8 5v14l11-7z" />
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Card body */}
-                    <div className="p-3">
-                      <p className="font-bold text-white text-sm truncate">{ch.handle}</p>
-                      <p className="text-xs text-muted-foreground truncate mb-2">{ch.fullName || ch.handle.replace("@", "")}</p>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${ch.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
-                          }`}>{ch.type}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/20 text-primary">
-                          {ch.category}
-                        </span>
-                        <span className="text-xs italic text-muted-foreground">· {ch.subCategory}</span>
-                      </div>
-                    </div>
-                  </button>
-                )
-              })}
+              {similarChannels.slice(0, 6).map(ch => (
+                <SimilarChannelCard key={ch.id} channel={ch} />
+              ))}
             </div>
           )}
         </div>
