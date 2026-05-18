@@ -238,7 +238,7 @@ export function Dashboard() {
     })
   }, [channelsState, searchQuery, showUnavailable, showHandleDiff, dateFilter, customRange, filterValues, isEditMode])
 
-  const selectedChannel = channelsState.find((c) => c.id === selectedChannelId)!
+  const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
   const channelInfo = CHANNEL_INFO[selectedChannelId] ?? {
     about: "—", createdOn: "—", subscribers: "—",
     totalVideos: "—", totalViews: "—", country: "—",
