@@ -906,7 +906,7 @@ export function Dashboard() {
           ) : (
             <div
               ref={scrollContainerRef}
-              className="flex flex-nowrap pl-2 items-start overflow-x-scroll overflow-y-visible gap-3 py-4"
+              className="group/strip flex flex-nowrap pl-2 items-start overflow-x-scroll overflow-y-visible gap-3 py-4"
               onMouseLeave={() => setHoveredSimilarId(null)}
             >
               {similarChannels.slice(0, 6).map(ch => (

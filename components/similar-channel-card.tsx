@@ -36,7 +36,7 @@ export function SimilarChannelCard({ channel }: SimilarChannelCardProps) {
 
     return (
         <div
-            className="flex-shrink-0 w-[280px] rounded-xl overflow-hidden bg-muted/60 border border-border cursor-pointer group relative"
+            className="flex-shrink-0 w-[280px] rounded-xl overflow-hidden bg-muted/60 border border-border cursor-pointer group relative transition-all duration-200 scale-100 group-hover/strip:scale-95 hover:!scale-105 hover:z-10"
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
             onClick={() => channel.ytUrl && window.open(channel.ytUrl, '_blank')}
