@@ -21,58 +21,7 @@ import {
 } from "@/lib/constants"
 import { useChannels } from "@/lib/useChannels"
 
-const CATEGORIES: NicheCategory[] = [
-  "Entertainment", "Tech", "Finance", "Gaming",
-  "Education", "Fitness", "Food", "Lifestyle", "Travel", "Music",
-]
 
-const SUB_CATEGORIES = [
-  "Commentary", "Reviews", "Tutorials", "Vlogs", "Shorts Commentary",
-  "Let's Play", "Comedy", "Podcasts", "Workouts", "Cooking",
-  "Quick Workouts", "Science", "Sports", "Challenges", "Personal Finance", "Hardware",
-]
-
-const CONTENT_TYPES: ContentType[] = ["Long-Form", "Shorts", "Both"]
-const TRACKING_STATUSES: TrackingStatus[] = ["YES", "NO"]
-
-// Dummy channel info data per channel id
-const CHANNEL_INFO: Record<string, {
-  about: string
-  createdOn: string
-  subscribers: string
-  totalVideos: string
-  totalViews: string
-  country: string
-}> = {
-  "1": { about: "Stunts, philanthropy and large-scale challenges that push the limits of creativity and generosity.", createdOn: "Feb 19, 2012", subscribers: "290M", totalVideos: "780", totalViews: "42B", country: "🇺🇸 United States" },
-  "2": { about: "In-depth consumer tech reviews, smartphone comparisons and cutting-edge gadget coverage.", createdOn: "Jan 21, 2009", subscribers: "18.5M", totalVideos: "1.4K", totalViews: "4.2B", country: "🇺🇸 United States" },
-  "3": { about: "Personal finance, real estate investing and wealth-building strategies for everyday people.", createdOn: "Aug 4, 2016", subscribers: "5.1M", totalVideos: "520", totalViews: "890M", country: "🇺🇸 United States" },
-  "4": { about: "Gaming commentary, Let's Play series and long-running variety content across genres.", createdOn: "Apr 29, 2010", subscribers: "111M", totalVideos: "4.8K", totalViews: "28B", country: "🇸🇪 Sweden" },
-  "5": { about: "Viral short-form comedy and relatable everyday moments reaching hundreds of millions.", createdOn: "Jul 31, 2018", subscribers: "162M", totalVideos: "1.1K", totalViews: "15B", country: "🇩🇿 Algeria" },
-  "6": { about: "Long-form conversations on science, AI, philosophy and the future of humanity.", createdOn: "Aug 17, 2018", subscribers: "4.3M", totalVideos: "380", totalViews: "650M", country: "🇺🇸 United States" },
-  "7": { about: "Free, professional-grade workout routines for all fitness levels — no gym required.", createdOn: "Jan 21, 2009", subscribers: "7.6M", totalVideos: "680", totalViews: "1.2B", country: "🇺🇸 United States" },
-  "8": { about: "Culinary adventures recreating iconic dishes from TV, movies and pop culture.", createdOn: "Aug 5, 2016", subscribers: "10.2M", totalVideos: "330", totalViews: "2.1B", country: "🇺🇸 United States" },
-  "9": { about: "One-minute travel stories that capture culture, humanity and hidden corners of the world.", createdOn: "Apr 1, 2016", subscribers: "18M", totalVideos: "1.2K", totalViews: "5.3B", country: "🇮🇱 Israel" },
-  "10": { about: "PC hardware reviews, tech builds and in-depth analysis of consumer and enterprise tech.", createdOn: "Aug 24, 2008", subscribers: "15.8M", totalVideos: "5.7K", totalViews: "8.9B", country: "🇨🇦 Canada" },
-  "11": { about: "Short daily workout sessions designed to be quick, effective and accessible to everyone.", createdOn: "Jan 28, 2019", subscribers: "3.2M", totalVideos: "290", totalViews: "480M", country: "🇬🇧 United Kingdom" },
-  "12": { about: "Fascinating science facts, curious geography and the quirky side of the world around us.", createdOn: "Nov 26, 2008", subscribers: "6.7M", totalVideos: "220", totalViews: "560M", country: "🇬🇧 United Kingdom" },
-  "13": { about: "Epic sports trick shots, team challenges and outrageous stunts with world-class athletes.", createdOn: "Mar 16, 2009", subscribers: "60M", totalVideos: "410", totalViews: "18B", country: "🇺🇸 United States" },
-  "14": { about: "Science education that makes complex ideas accessible through experiments and storytelling.", createdOn: "Sep 23, 2011", subscribers: "15.9M", totalVideos: "320", totalViews: "1.6B", country: "🇦🇺 Australia" },
-  "15": { about: "Lifestyle challenges, creative experiments and entertaining content for Gen Z audiences.", createdOn: "Aug 14, 2018", subscribers: "8.4M", totalVideos: "740", totalViews: "2.3B", country: "🇺🇸 United States" },
-  "16": { about: "Science-based engineering stunts, viral contraptions and mind-bending experiments for all ages.", createdOn: "Mar 26, 2011", subscribers: "48M", totalVideos: "140", totalViews: "5.8B", country: "🇺🇸 United States" },
-  "17": { about: "Commentary, challenges and behind-the-scenes content from the creator behind MrBeast.", createdOn: "Jan 1, 2012", subscribers: "22M", totalVideos: "210", totalViews: "3.1B", country: "🇺🇸 United States" },
-  "18": { about: "Magic illusion videos and jaw-dropping visual effects that fool the eye and stun audiences.", createdOn: "Oct 31, 2013", subscribers: "82M", totalVideos: "970", totalViews: "9.4B", country: "🇺🇸 United States" },
-  "19": { about: "Product unboxings, comparisons and hands-on impressions of the latest consumer gadgets.", createdOn: "Dec 11, 2010", subscribers: "22.8M", totalVideos: "850", totalViews: "3.8B", country: "🇨🇦 Canada" },
-  "20": { about: "Tech reviews, flagship device showdowns and deep-dives into mobile and consumer electronics.", createdOn: "Nov 17, 2014", subscribers: "15.3M", totalVideos: "1.1K", totalViews: "2.4B", country: "🇮🇳 India" },
-  "21": { about: "Investing, dividend strategies and building wealth through passive income and smart finance.", createdOn: "Mar 5, 2016", subscribers: "2.7M", totalVideos: "410", totalViews: "320M", country: "🇺🇸 United States" },
-  "22": { about: "Real estate, stocks and economic commentary from a serial entrepreneur and investor.", createdOn: "Jun 27, 2015", subscribers: "2.1M", totalVideos: "3.8K", totalViews: "780M", country: "🇺🇸 United States" },
-  "23": { about: "Horror games, comedy playthroughs and emotional storytelling across all game genres.", createdOn: "May 26, 2012", subscribers: "35.6M", totalVideos: "5.4K", totalViews: "19.4B", country: "🇺🇸 United States" },
-  "24": { about: "High-energy gaming content, vlogs and charity livestreams with infectious personality.", createdOn: "Feb 7, 2012", subscribers: "30.8M", totalVideos: "4.9K", totalViews: "14.7B", country: "🇮🇪 Ireland" },
-  "25": { about: "Science-backed strength and athletic training to help anyone build a better physique.", createdOn: "Jan 17, 2006", subscribers: "13.4M", totalVideos: "1.2K", totalViews: "1.9B", country: "🇺🇸 United States" },
-  "26": { about: "Cooking tutorials, restaurant-quality recipes and culinary masterclasses from a Michelin chef.", createdOn: "Jun 28, 2012", subscribers: "20.7M", totalVideos: "720", totalViews: "4.1B", country: "🇬🇧 United Kingdom" },
-  "27": { about: "Full-time travel couple documenting life on the road across every continent.", createdOn: "Oct 1, 2015", subscribers: "1.4M", totalVideos: "1.1K", totalViews: "260M", country: "🇺🇸 United States" },
-  "28": { about: "Relatable lifestyle vlogs, coffee shop adventures and honest conversations with Gen Z.", createdOn: "Nov 7, 2017", subscribers: "12.2M", totalVideos: "560", totalViews: "1.8B", country: "🇺🇸 United States" },
-}
 
 // Date filter options
 const DATE_FILTER_OPTIONS = ["All Time", "This Week", "This Month", "Custom Range"] as const
@@ -110,6 +59,26 @@ export function Dashboard() {
   const [selectedChannelId, setSelectedChannelId] = useState<string>("")
   const { channels: initialChannels, loading, setChannels: setChannelsState } = useChannels()
   const [channelsState, setChannelsState2] = useState<Channel[]>([])
+
+  const CATEGORIES = useMemo(() =>
+    [...new Set(channelsState.map(c => c.category).filter(Boolean))].sort(),
+    [channelsState]
+  )
+
+  const SUB_CATEGORIES = useMemo(() =>
+    [...new Set(channelsState.map(c => c.subCategory).filter(Boolean))].sort(),
+    [channelsState]
+  )
+
+  const CONTENT_TYPES = useMemo(() =>
+    [...new Set(channelsState.map(c => c.type).filter(Boolean))].sort(),
+    [channelsState]
+  )
+
+  const TRACKING_STATUSES = useMemo(() =>
+    [...new Set(channelsState.map(c => c.tracking).filter(Boolean))].sort(),
+    [channelsState]
+  )
 
   useEffect(() => {
     if (initialChannels.length > 0) {
@@ -239,7 +208,7 @@ export function Dashboard() {
   }, [channelsState, searchQuery, showUnavailable, showHandleDiff, dateFilter, customRange, filterValues, isEditMode])
 
   const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
-  const channelInfo = CHANNEL_INFO[selectedChannelId] ?? {
+  const channelInfo = {
     about: "—", createdOn: "—", subscribers: "—",
     totalVideos: "—", totalViews: "—", country: "—",
   }
@@ -736,6 +705,22 @@ export function Dashboard() {
                   </div>
                 )
               })}
+              {isEditMode && (
+                <>
+                  <div className="w-px self-stretch bg-border flex-shrink-0" />
+                  <div className="flex-1 flex items-stretch">
+                    <div className="relative flex-1 px-3 flex flex-col justify-center">
+                      <span className="text-[10px] uppercase tracking-widest mb-0.5 text-muted-foreground">Verified / Remarks</span>
+                      <input
+                        value={tempValues.verified || ""}
+                        onChange={(e) => setTempValues(p => ({ ...p, verified: e.target.value }))}
+                        className="w-full text-[13px] font-medium text-foreground bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-purple-500 rounded px-1 py-0.5 -mx-1 placeholder:text-muted-foreground"
+                        placeholder="Remarks..."
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Edit / Save / Cancel + active filter badge */}
