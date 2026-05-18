@@ -44,7 +44,13 @@ export async function GET() {
         const diffRows = diffRes.data.values || [];
 
         // Build a Set of URLs that have a handle diff entry
-        const diffUrls = new Set(diffRows.map((r) => (r[0] || '').trim()));
+        const normUrl = (url: string) =>
+            url.trim().toLowerCase()
+                .replace(/^https?:\/\//, '')
+                .replace(/^www\./, '')
+                .replace(/\/$/, '')
+
+        const diffUrls = new Set(diffRows.map((r) => normUrl(r[0] || '')));
 
         const channels = manualRows.map((row) => ({
             ytUrl: (row[0] || '').trim(),
@@ -56,7 +62,7 @@ export async function GET() {
             sharedOn: normalizeDate(row[6]),
             tracking: (row[7] || '').trim(),
             postedBy: (row[8] || '').trim(),
-            hasHandleDiff: diffUrls.has((row[0] || '').trim()),
+            hasHandleDiff: diffUrls.has(normUrl(row[0] || '')),
         }));
 
         return NextResponse.json({ success: true, channels });
