@@ -14,12 +14,12 @@ import { ChannelCard } from "@/components/channel-card"
 
 
 import {
-  channels as initialChannels,
   type Channel,
   type TrackingStatus,
   type ContentType,
   type NicheCategory,
 } from "@/lib/constants"
+import { useChannels } from "@/lib/useChannels"
 
 const CATEGORIES: NicheCategory[] = [
   "Entertainment", "Tech", "Finance", "Gaming",
@@ -107,8 +107,16 @@ function isInDateRange(sharedOn: string, filter: DateFilterOption, customRange?:
 
 export function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedChannelId, setSelectedChannelId] = useState(initialChannels[0].id)
-  const [channelsState, setChannelsState] = useState<Channel[]>(initialChannels)
+  const [selectedChannelId, setSelectedChannelId] = useState<string>("")
+  const { channels: initialChannels, loading, setChannels: setChannelsState } = useChannels()
+  const [channelsState, setChannelsState2] = useState<Channel[]>([])
+
+  useEffect(() => {
+    if (initialChannels.length > 0) {
+      setChannelsState2(initialChannels)
+      if (!selectedChannelId) setSelectedChannelId(initialChannels[0].id)
+    }
+  }, [initialChannels])
   const [isEditMode, setIsEditMode] = useState(false)
   const [showUnavailable, setShowUnavailable] = useState(false)
   const [showHandleDiff, setShowHandleDiff] = useState(false)
@@ -447,8 +455,8 @@ export function Dashboard() {
                           if (opt !== "Custom Range") setShowDateDropdown(false)
                         }}
                         className={`w-full text-left px-4 py-2 text-xs transition-colors ${dateFilter === opt
-                            ? "text-purple-400 font-semibold bg-purple-500/10"
-                            : "text-foreground hover:bg-purple-500/10 hover:text-purple-300"
+                          ? "text-purple-400 font-semibold bg-purple-500/10"
+                          : "text-foreground hover:bg-purple-500/10 hover:text-purple-300"
                           }`}
                       >
                         {opt}
@@ -629,10 +637,10 @@ export function Dashboard() {
                       <button
                         onClick={() => { setOpenField(isOpen ? null : key); setFieldSearch("") }}
                         className={`flex items-center gap-1.5 text-[13px] font-medium transition-colors w-full text-left rounded px-1 py-0.5 -mx-1 ${isOpen
-                            ? "text-purple-400 bg-white/5 ring-1 ring-purple-500/40"
-                            : isActive
-                              ? "text-purple-300 hover:text-purple-400 hover:bg-white/5"
-                              : "text-foreground hover:text-purple-400 hover:bg-white/5"
+                          ? "text-purple-400 bg-white/5 ring-1 ring-purple-500/40"
+                          : isActive
+                            ? "text-purple-300 hover:text-purple-400 hover:bg-white/5"
+                            : "text-foreground hover:text-purple-400 hover:bg-white/5"
                           }`}
                       >
                         <span className={
