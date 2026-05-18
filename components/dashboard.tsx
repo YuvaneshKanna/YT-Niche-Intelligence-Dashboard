@@ -287,8 +287,9 @@ export function Dashboard() {
     setIsEditMode(true)
   }
 
-  const handleSave = () => {
-    setChannelsState((prev) =>
+  const handleSave = async () => {
+    // Update local state immediately
+    setChannelsState2((prev) =>
       prev.map((c) =>
         c.id === selectedChannelId
           ? {
@@ -303,6 +304,24 @@ export function Dashboard() {
       )
     )
     setIsEditMode(false)
+
+    // Write back to Google Sheets
+    try {
+      await fetch('/api/channels', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ytUrl: selectedChannel?.ytUrl,
+          type: tempValues.contentType,
+          nicheCategory: tempValues.category,
+          subCategory: tempValues.subCategory,
+          verified: tempValues.verified,
+          tracking: tempValues.tracking,
+        }),
+      })
+    } catch (err) {
+      console.error('Failed to save to Sheets:', err)
+    }
   }
 
   const handleCancel = () => {
