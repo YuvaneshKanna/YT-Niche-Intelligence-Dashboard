@@ -223,17 +223,17 @@ export function Dashboard() {
       if (!isInDateRange(channel.sharedOn, dateFilter, customRange)) return false
       // Dropdown filters (AND logic — only applied in filter mode)
       if (!isEditMode) {
-        if (filterValues.category && channel.category !== filterValues.category) return false
-        if (filterValues.subCategory && channel.subCategory !== filterValues.subCategory) return false
-        if (filterValues.contentType && channel.type !== filterValues.contentType) return false
-        if (filterValues.tracking && channel.tracking !== filterValues.tracking) return false
+        if (filterValues.category && channel?.category !== filterValues.category) return false
+        if (filterValues.subCategory && channel?.subCategory !== filterValues.subCategory) return false
+        if (filterValues.contentType && channel?.type !== filterValues.contentType) return false
+        if (filterValues.tracking && channel?.tracking !== filterValues.tracking) return false
       }
       if (!searchQuery.trim()) return true
       const query = searchQuery.toLowerCase()
       return (
-        channel.handle.toLowerCase().includes(query) ||
-        channel.category.toLowerCase().includes(query) ||
-        channel.type.toLowerCase().includes(query)
+        channel?.handle?.toLowerCase().includes(query) ||
+        channel?.category?.toLowerCase().includes(query) ||
+        channel?.type?.toLowerCase().includes(query)
       )
     })
   }, [channelsState, searchQuery, showUnavailable, showHandleDiff, dateFilter, customRange, filterValues, isEditMode])
@@ -278,11 +278,11 @@ export function Dashboard() {
 
   const handleEdit = () => {
     setTempValues({
-      category: selectedChannel.category,
-      subCategory: selectedChannel.subCategory,
-      contentType: selectedChannel.contentType || "Long-Form",
-      tracking: selectedChannel.tracking,
-      verified: selectedChannel.verified,
+      category: selectedChannel?.category,
+      subCategory: selectedChannel?.subCategory,
+      contentType: selectedChannel?.contentType || "Long-Form",
+      tracking: selectedChannel?.tracking,
+      verified: selectedChannel?.verified,
     })
     setIsEditMode(true)
   }
@@ -307,11 +307,11 @@ export function Dashboard() {
 
   const handleCancel = () => {
     setTempValues({
-      category: selectedChannel.category,
-      subCategory: selectedChannel.subCategory,
-      contentType: selectedChannel.contentType || "Long-Form",
-      tracking: selectedChannel.tracking,
-      verified: selectedChannel.verified,
+      category: selectedChannel?.category,
+      subCategory: selectedChannel?.subCategory,
+      contentType: selectedChannel?.contentType || "Long-Form",
+      tracking: selectedChannel?.tracking,
+      verified: selectedChannel?.verified,
     })
     setIsEditMode(false)
   }
@@ -763,7 +763,7 @@ export function Dashboard() {
                 {videoLoading ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900">
                     <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-white/60 text-sm">Loading {selectedChannel.handle}&apos;s top video…</p>
+                    <p className="text-white/60 text-sm">Loading {selectedChannel?.handle}&apos;s top video…</p>
                   </div>
                 ) : videoData ? (
                   <>
@@ -785,7 +785,7 @@ export function Dashboard() {
                       <span className="text-white text-xs font-medium">Watch on YouTube</span>
                     </div>
                     <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent">
-                      <p className="text-white/60 text-xs mb-1">{selectedChannel.handle} · Most Popular Video</p>
+                      <p className="text-white/60 text-xs mb-1">{selectedChannel?.handle} · Most Popular Video</p>
                       <p className="text-white text-sm font-semibold line-clamp-2">{videoData.title}</p>
                     </div>
                   </>
@@ -807,31 +807,31 @@ export function Dashboard() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <h2 className="text-lg font-bold text-foreground leading-tight">
-                    {selectedChannel.handle}
-                    {selectedChannel.fullName && ` · ${selectedChannel.fullName}`}
+                    {selectedChannel?.handle}
+                    {selectedChannel?.fullName && ` · ${selectedChannel?.fullName}`}
                   </h2>
                   <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${selectedChannel.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
-                      }`}>{selectedChannel.type}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${selectedChannel?.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
+                      }`}>{selectedChannel?.type}</span>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/20 text-primary">
-                      {selectedChannel.category}
+                      {selectedChannel?.category}
                     </span>
-                    <span className="text-[10px] text-muted-foreground italic">{selectedChannel.subCategory}</span>
+                    <span className="text-[10px] text-muted-foreground italic">{selectedChannel?.subCategory}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => toggleFavourite(selectedChannel.id)}
+                    onClick={() => toggleFavourite(selectedChannel?.id)}
                     className="flex items-center justify-center transition-colors hover:scale-110"
-                    title={favourites.includes(selectedChannel.id) ? "Remove from Favourites" : "Add to Favourites"}
+                    title={favourites.includes(selectedChannel?.id) ? "Remove from Favourites" : "Add to Favourites"}
                   >
                     <Star
-                      className={`w-5 h-5 transition-colors ${favourites.includes(selectedChannel.id) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground hover:text-foreground'}`}
+                      className={`w-5 h-5 transition-colors ${favourites.includes(selectedChannel?.id) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground hover:text-foreground'}`}
                     />
                   </button>
-                  {selectedChannel.ytUrl ? (
+                  {selectedChannel?.ytUrl ? (
                     <button
-                      onClick={() => window.open(selectedChannel.ytUrl, "_blank")}
+                      onClick={() => window.open(selectedChannel?.ytUrl, "_blank")}
                       className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 font-medium transition-colors flex-shrink-0"
                     >
                       <ExternalLink className="w-3 h-3" />
@@ -899,7 +899,7 @@ export function Dashboard() {
               ) : (
                 <div className="flex-1">
                   <p className="text-sm font-medium text-foreground leading-relaxed">
-                    {selectedChannel.verified || "—"}
+                    {selectedChannel?.verified || "—"}
                   </p>
                 </div>
               )}
