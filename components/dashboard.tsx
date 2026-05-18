@@ -216,7 +216,7 @@ export function Dashboard() {
     return channelsState.filter((channel) => {
       // Toggle filters
       const unavailableMatch = showUnavailable && channel.isUnavailable === true
-      const diffMatch = showHandleDiff && channel.originalHandle !== channel.currentHandle
+      const diffMatch = showHandleDiff && channel.hasHandleDiff === true
       if (showUnavailable || showHandleDiff) {
         if (!unavailableMatch && !diffMatch) return false
       }
