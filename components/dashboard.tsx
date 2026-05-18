@@ -252,7 +252,8 @@ export function Dashboard() {
     setVideoData(null)
     setVideoPlaying(false)
     setVideoLoading(true)
-    fetch(`/api/channel-video?handle=${encodeURIComponent(handle)}`)
+    const ch = channelsState.find(c => c.id === selectedChannelId)
+    fetch(`/api/channel-video?handle=${encodeURIComponent(handle)}&ytUrl=${encodeURIComponent(ch?.ytUrl || '')}`)
       .then(r => r.json())
       .then(data => {
         if (data.videoId) setVideoData(data)
@@ -785,29 +786,14 @@ export function Dashboard() {
                     <p className="text-white/60 text-sm">Loading {selectedChannel?.handle}&apos;s top video…</p>
                   </div>
                 ) : videoData ? (
-                  <>
-                    <img
-                      src={videoData.thumbnail}
-                      alt={videoData.title}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-20 h-20 rounded-full bg-red-600 group-hover:bg-red-500 flex items-center justify-center shadow-2xl transition-all group-hover:scale-110 border-4 border-white/20">
-                        <svg viewBox="0 0 24 24" fill="white" className="w-9 h-9 ml-1">
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                      </div>
-                    </div>
-                    <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/70 backdrop-blur-sm rounded-full px-3 py-1">
-                      <svg viewBox="0 0 24 24" fill="#FF0000" className="w-3.5 h-3.5"><path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z" /></svg>
-                      <span className="text-white text-xs font-medium">Watch on YouTube</span>
-                    </div>
-                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent">
-                      <p className="text-white/60 text-xs mb-1">{selectedChannel?.handle} · Most Popular Video</p>
-                      <p className="text-white text-sm font-semibold line-clamp-2">{videoData.title}</p>
-                    </div>
-                  </>
+                  <iframe
+                    key={videoData.videoId}
+                    src={`https://www.youtube.com/embed/${videoData.videoId}?autoplay=0&rel=0&modestbranding=1`}
+                    title={videoData.title}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    className="absolute inset-0 w-full h-full border-0"
+                  />
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-zinc-900">
                     <Youtube className="w-10 h-10 text-white/30" />
@@ -1002,15 +988,16 @@ export function Dashboard() {
           )}
         </div>
 
-      </main>
+      </main >
 
       {/* ── FAVOURITES PANEL & TOGGLE ── */}
-      <button
-        onClick={() => setIsFavouritesOpen(!isFavouritesOpen)}
+      < button
+        onClick={() => setIsFavouritesOpen(!isFavouritesOpen)
+        }
         className={`fixed top-1/2 -translate-y-1/2 bg-sidebar border border-border text-sidebar-foreground py-3 px-1 rounded-l-lg shadow-xl z-40 flex items-center justify-center transition-all duration-300 hover:bg-sidebar-accent ${isFavouritesOpen ? 'right-[280px]' : 'right-0 border-r-0'}`}
       >
         <span className="text-lg font-bold leading-none select-none">{isFavouritesOpen ? "»" : "«"}</span>
-      </button>
+      </button >
 
       <div
         className={`fixed top-0 right-0 h-full w-[280px] bg-sidebar border-l border-border shadow-2xl z-50 transform transition-transform duration-300 ease-in-out flex flex-col ${isFavouritesOpen ? "translate-x-0" : "translate-x-full"}`}
@@ -1063,6 +1050,6 @@ export function Dashboard() {
           </Button>
         </div>
       </div>
-    </div>
+    </div >
   )
 }
