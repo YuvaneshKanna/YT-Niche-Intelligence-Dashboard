@@ -4,23 +4,35 @@ function extractFromUrl(ytUrl: string): { handle?: string; videoId?: string; cha
   if (!ytUrl) return {}
   const url = ytUrl.replace(/^https?:\/\//, '').replace(/^www\./, '')
 
-  // Shorts: youtube.com/shorts/xxx
   const shortsMatch = url.match(/shorts\/([a-zA-Z0-9_-]{11})/)
   if (shortsMatch) return { videoId: shortsMatch[1] }
 
-  // Watch: youtube.com/watch?v=xxx
   const watchMatch = url.match(/watch\?v=([a-zA-Z0-9_-]{11})/)
   if (watchMatch) return { videoId: watchMatch[1] }
 
-  // Handle: youtube.com/@handle
   const handleMatch = url.match(/@([a-zA-Z0-9_.-]+)/)
   if (handleMatch) return { handle: '@' + handleMatch[1] }
 
-  // Channel ID: youtube.com/channel/UCxxx
   const channelMatch = url.match(/channel\/(UC[a-zA-Z0-9_-]+)/)
   if (channelMatch) return { channelId: channelMatch[1] }
 
   return {}
+}
+
+function daysAgoISO(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  return d.toISOString()
+}
+
+async function fetchTopVideo(channelId: string, apiKey: string, publishedAfter?: string) {
+  const afterParam = publishedAfter ? `&publishedAfter=${publishedAfter}` : ''
+  const order = publishedAfter ? 'viewCount' : 'date'
+  const res = await fetch(
+    `https://www.googleapis.com/youtube/v3/search?part=id,snippet&channelId=${channelId}&order=${order}&type=video&maxResults=1${afterParam}&key=${apiKey}`
+  )
+  const data = await res.json()
+  return data.items?.[0] || null
 }
 
 export async function GET(request: NextRequest) {
@@ -33,14 +45,10 @@ export async function GET(request: NextRequest) {
 
   try {
     let channelId: string | null = null
-    let directVideoId: string | null = null
-
     const parsed = extractFromUrl(ytUrl)
 
-    // If we got a direct video ID from URL, use it immediately
+    // Direct video ID from URL
     if (parsed.videoId) {
-      directVideoId = parsed.videoId
-      // Still need channelId for fallback — get it from video
       const vRes = await fetch(
         `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${parsed.videoId}&key=${apiKey}`
       )
@@ -55,13 +63,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Resolve channelId from parsed.channelId or handle
+    // Resolve channelId
     if (parsed.channelId) {
       channelId = parsed.channelId
     } else {
       const h = parsed.handle || handle
       if (!h) return NextResponse.json({ error: 'Cannot resolve channel' }, { status: 400 })
-
       const cRes = await fetch(
         `https://www.googleapis.com/youtube/v3/channels?part=id&forHandle=${encodeURIComponent(h.replace('@', ''))}&key=${apiKey}`
       )
@@ -71,19 +78,17 @@ export async function GET(request: NextRequest) {
 
     if (!channelId) return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
 
-    // Get most popular video
-    const vRes = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?part=id,snippet&channelId=${channelId}&order=viewCount&type=video&maxResults=1&key=${apiKey}`
-    )
-    const vData = await vRes.json()
+    // Try last 7 days → last 30 days → most recent
+    let video = await fetchTopVideo(channelId, apiKey, daysAgoISO(7))
+    if (!video) video = await fetchTopVideo(channelId, apiKey, daysAgoISO(30))
+    if (!video) video = await fetchTopVideo(channelId, apiKey)
 
-    if (!vData.items?.[0]) return NextResponse.json({ error: 'No videos found' }, { status: 404 })
+    if (!video) return NextResponse.json({ error: 'No videos found' }, { status: 404 })
 
-    const top = vData.items[0]
     return NextResponse.json({
-      videoId: top.id.videoId,
-      title: top.snippet.title,
-      thumbnail: top.snippet.thumbnails?.high?.url,
+      videoId: video.id.videoId,
+      title: video.snippet.title,
+      thumbnail: video.snippet.thumbnails?.high?.url,
     })
 
   } catch (err) {
