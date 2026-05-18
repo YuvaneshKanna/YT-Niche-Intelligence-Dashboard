@@ -773,13 +773,8 @@ export function Dashboard() {
 
           {/* LEFT — Video Player */}
           <div className="w-[60%] flex flex-col min-h-0">
-            <div className="w-full h-full rounded-xl overflow-hidden bg-black relative">
-              <div
-                className="w-full h-full relative cursor-pointer group"
-                onClick={() => {
-                  if (videoData) window.open(`https://www.youtube.com/watch?v=${videoData.videoId}`, '_blank')
-                }}
-              >
+            <div className="w-full rounded-xl overflow-hidden bg-black relative" style={{ aspectRatio: '16/9' }}>
+              <div className="absolute inset-0">
                 {videoLoading ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900">
                     <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
