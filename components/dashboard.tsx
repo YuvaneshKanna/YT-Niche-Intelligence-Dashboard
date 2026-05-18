@@ -332,11 +332,19 @@ export function Dashboard() {
     channelsState.filter(
       (c) =>
         c.id !== selectedChannelId &&
-        c.type === selectedChannel.type &&
-        c.category === selectedChannel.category
+        c.type === selectedChannel?.type &&
+        c.category === selectedChannel?.category
     ),
     [channelsState, selectedChannelId, selectedChannel]
   )
+
+  if (loading || channelsState.length === 0) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <p className="text-muted-foreground text-sm">Loading channels...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
