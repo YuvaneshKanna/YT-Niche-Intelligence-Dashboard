@@ -178,11 +178,11 @@ export function Dashboard() {
   }
 
   const [tempValues, setTempValues] = useState({
-    category: initialChannels[0].category as string,
-    subCategory: initialChannels[0].subCategory,
-    contentType: (initialChannels[0].contentType || "Long-Form") as string,
-    tracking: initialChannels[0].tracking as string,
-    verified: initialChannels[0].verified,
+    category: "" as string,
+    subCategory: "",
+    contentType: "Long-Form" as string,
+    tracking: "NO" as string,
+    verified: "",
   })
 
 
