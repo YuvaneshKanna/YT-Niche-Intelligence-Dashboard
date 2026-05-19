@@ -235,6 +235,8 @@ export function Dashboard() {
   const handleSelectChannel = (id: string) => {
     const ch = channelsState.find((c) => c.id === id)!
     setSelectedChannelId(id)
+    setShowUnavailable(ch.isUnavailable === true)
+    setShowHandleDiff(ch.hasHandleDiff === true)
     setVideoPlaying(false)
     setIsEditMode(false)
     setTempValues({
