@@ -91,6 +91,9 @@ export function Dashboard() {
   const [showHandleDiff, setShowHandleDiff] = useState(false)
   const [channelIsUnavailable, setChannelIsUnavailable] = useState(false)
   const [channelHasHandleDiff, setChannelHasHandleDiff] = useState(false)
+  const [handleDiffInfo, setHandleDiffInfo] = useState<{ previousHandle: string; currentHandle: string } | null>(null)
+  const [handleDiffEdits, setHandleDiffEdits] = useState<{ previousHandle: string; currentHandle: string }>({ previousHandle: "", currentHandle: "" })
+  const [resolvedHandle, setResolvedHandle] = useState("")
   const [dateFilter, setDateFilter] = useState<DateFilterOption>("All Time")
   const [showDateDropdown, setShowDateDropdown] = useState(false)
   // Applied custom range (used for filtering)
@@ -233,12 +236,40 @@ export function Dashboard() {
       .finally(() => setVideoLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChannelId])
+  useEffect(() => {
+    const selectedCh = channelsState.find(c => c.id === selectedChannelId)
+    if (!selectedCh) { setHandleDiffInfo(null); return }
+    const normHandle = (h: string) => (h || '').trim().toLowerCase().replace(/^@/, '')
+    const selHandle = normHandle(selectedCh.handle || '')
+    if (!selHandle || selHandle.includes('unavailable')) { setHandleDiffInfo(null); return }
+    fetch('/api/handle-diff')
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.diffs)) {
+          const found = data.diffs.find((d: any) =>
+            normHandle(d.previousHandle) === selHandle ||
+            normHandle(d.currentHandle) === selHandle
+          )
+          if (found) {
+            setHandleDiffInfo({ previousHandle: found.previousHandle, currentHandle: found.currentHandle })
+            setHandleDiffEdits({ previousHandle: found.previousHandle, currentHandle: found.currentHandle })
+          } else {
+            setHandleDiffInfo(null)
+          }
+        } else {
+          setHandleDiffInfo(null)
+        }
+      })
+      .catch(() => setHandleDiffInfo(null))
+  }, [selectedChannelId, channelsState])
 
   const handleSelectChannel = (id: string) => {
     const ch = channelsState.find((c) => c.id === id)!
     setSelectedChannelId(id)
     setChannelIsUnavailable(ch.isUnavailable === true)
     setChannelHasHandleDiff(ch.hasHandleDiff === true)
+    setResolvedHandle("")
+    setHandleDiffInfo(null)
     setVideoPlaying(false)
     setIsEditMode(false)
     setTempValues({
@@ -295,6 +326,45 @@ export function Dashboard() {
       })
     } catch (err) {
       console.error('Failed to save to Sheets:', err)
+    }
+    // Save resolved handle to Manual Sheet column B
+    if (channelIsUnavailable && resolvedHandle.startsWith('@') && resolvedHandle.trim() !== '') {
+      try {
+        await fetch('/api/channels', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ytUrl: selectedChannel?.ytUrl,
+            handle: resolvedHandle.trim(),
+          }),
+        })
+        setChannelsState2(prev => prev.map(c =>
+          c.id === selectedChannelId
+            ? { ...c, handle: resolvedHandle.trim(), isUnavailable: false }
+            : c
+        ))
+        setChannelIsUnavailable(false)
+      } catch (err) {
+        console.error('Failed to save resolved handle:', err)
+      }
+    }
+
+    // Save handle diff edits to Handle Diff sheet
+    if ((channelHasHandleDiff || showHandleDiff) && handleDiffInfo) {
+      try {
+        await fetch('/api/handle-diff', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ytUrl: selectedChannel?.ytUrl,
+            previousHandle: handleDiffEdits.previousHandle,
+            currentHandle: handleDiffEdits.currentHandle,
+          }),
+        })
+        setHandleDiffInfo({ ...handleDiffEdits })
+      } catch (err) {
+        console.error('Failed to save handle diff:', err)
+      }
     }
   }
 
@@ -610,12 +680,12 @@ export function Dashboard() {
                 // In filter mode: show current filter value ("" = All)
                 const editValue = tempValues[key as keyof typeof tempValues] as string
                 const filterValue = filterValues[key as keyof typeof filterValues]
-                
+
                 const channelValue = key === "category" ? selectedChannel?.category
                   : key === "subCategory" ? selectedChannel?.subCategory
-                  : key === "contentType" ? (selectedChannel?.contentType || selectedChannel?.type)
-                  : key === "tracking" ? selectedChannel?.tracking
-                  : ""
+                    : key === "contentType" ? (selectedChannel?.contentType || selectedChannel?.type)
+                      : key === "tracking" ? selectedChannel?.tracking
+                        : ""
 
                 const displayValue = isEditMode
                   ? editValue || "—"
@@ -837,7 +907,61 @@ export function Dashboard() {
                 {channelInfo.about}
               </p>
             </div>
+            {/* Handle Diff Card */}
+            {(channelHasHandleDiff || showHandleDiff) && handleDiffInfo && (
+              <div className="flex flex-col gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex-shrink-0">
+                <span className="text-[10px] text-amber-400 uppercase tracking-wide font-semibold">Handle Change Detected</span>
+                <div className="flex gap-3">
+                  <div className="flex-1 flex flex-col gap-1">
+                    <label className="text-[10px] text-muted-foreground">Previous Handle</label>
+                    {isEditMode ? (
+                      <input
+                        value={handleDiffEdits.previousHandle}
+                        onChange={e => setHandleDiffEdits(p => ({ ...p, previousHandle: e.target.value }))}
+                        className="w-full px-2 py-1 text-sm rounded-md bg-background border border-amber-500/40 text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-foreground">{handleDiffInfo.previousHandle || "—"}</p>
+                    )}
+                  </div>
+                  <div className="flex-1 flex flex-col gap-1">
+                    <label className="text-[10px] text-muted-foreground">Current Handle</label>
+                    {isEditMode ? (
+                      <input
+                        value={handleDiffEdits.currentHandle}
+                        onChange={e => setHandleDiffEdits(p => ({ ...p, currentHandle: e.target.value }))}
+                        className="w-full px-2 py-1 text-sm rounded-md bg-background border border-amber-500/40 text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-foreground">{handleDiffInfo.currentHandle || "—"}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
+            {/* Unavailable Handle Card */}
+            {(channelIsUnavailable || showUnavailable) && (
+              <div className="flex flex-col gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex-shrink-0">
+                <span className="text-[10px] text-red-400 uppercase tracking-wide font-semibold">
+                  {channelIsUnavailable ? "Resolve Handle" : "Unavailable Handle"}
+                </span>
+                {isEditMode ? (
+                  <input
+                    value={resolvedHandle}
+                    onChange={e => setResolvedHandle(e.target.value)}
+                    placeholder="@newhandle"
+                    className="w-full px-2 py-1 text-sm rounded-md bg-background border border-red-500/40 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-red-500"
+                  />
+                ) : (
+                  <p className="text-sm font-medium text-foreground">
+                    {selectedChannel?.handle && !selectedChannel.handle.toLowerCase().includes('unavailable')
+                      ? selectedChannel.handle
+                      : "Not resolved yet"}
+                  </p>
+                )}
+              </div>
+            )}
             {/* Subscribers + Total Videos side by side */}
             <div className="flex gap-3 flex-shrink-0">
               <div className="flex-1 flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3">
@@ -907,9 +1031,9 @@ export function Dashboard() {
               onMouseLeave={() => setHoveredSimilarId(null)}
             >
               {similarChannels.slice(0, 6).map(ch => (
-                <SimilarChannelCard 
-                  key={ch.id} 
-                  channel={ch} 
+                <SimilarChannelCard
+                  key={ch.id}
+                  channel={ch}
                   onSelect={(id) => handleSelectChannel(id)}
                 />
               ))}

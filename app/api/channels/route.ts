@@ -19,7 +19,7 @@ function normalizeType(raw: string): string {
 }
 
 function normalizeDate(raw: string): string {
-    return (raw || '').split(' ')[0]; // strips time, keeps YYYY-MM-DD
+    return (raw || '').split(' ')[0];
 }
 
 export async function GET() {
@@ -28,7 +28,6 @@ export async function GET() {
         const sheets = google.sheets({ version: 'v4', auth });
         const spreadsheetId = process.env.GOOGLE_SHEET_ID;
 
-        // Fetch Manual Sheet and Handle Diff in parallel
         const [manualRes, diffRes] = await Promise.all([
             sheets.spreadsheets.values.get({
                 spreadsheetId,
@@ -43,7 +42,6 @@ export async function GET() {
         const manualRows = manualRes.data.values || [];
         const diffRows = diffRes.data.values || [];
 
-        // Build a Set of URLs that have a handle diff entry
         const normUrl = (url: string) =>
             url.trim().toLowerCase()
                 .replace(/^https?:\/\//, '')
@@ -74,7 +72,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
     try {
         const body = await request.json();
-        const { ytUrl, type, nicheCategory, subCategory, verified, tracking } = body;
+        const { ytUrl, type, nicheCategory, subCategory, verified, tracking, handle } = body;
 
         if (!ytUrl) {
             return NextResponse.json({ success: false, error: 'ytUrl is required' }, { status: 400 });
@@ -84,7 +82,6 @@ export async function PATCH(request: Request) {
         const sheets = google.sheets({ version: 'v4', auth });
         const spreadsheetId = process.env.GOOGLE_SHEET_ID;
 
-        // Find the row number by matching YT URL in column A
         const lookup = await sheets.spreadsheets.values.get({
             spreadsheetId,
             range: 'Manual Sheet!A2:A',
@@ -97,9 +94,8 @@ export async function PATCH(request: Request) {
             return NextResponse.json({ success: false, error: 'Channel not found' }, { status: 404 });
         }
 
-        const sheetRow = rowIndex + 2; // +2 because data starts at row 2
+        const sheetRow = rowIndex + 2;
 
-        // Update only editable columns: C(Type), D(Niche), E(Sub), F(Verified), H(Tracking)
         await sheets.spreadsheets.values.batchUpdate({
             spreadsheetId,
             requestBody: {
@@ -110,6 +106,7 @@ export async function PATCH(request: Request) {
                     { range: `Manual Sheet!E${sheetRow}`, values: [[subCategory ?? '']] },
                     { range: `Manual Sheet!F${sheetRow}`, values: [[verified ?? '']] },
                     { range: `Manual Sheet!H${sheetRow}`, values: [[tracking ?? '']] },
+                    ...(handle ? [{ range: `Manual Sheet!B${sheetRow}`, values: [[handle]] }] : []),
                 ],
             },
         });
