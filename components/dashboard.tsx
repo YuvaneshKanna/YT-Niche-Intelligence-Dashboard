@@ -89,6 +89,8 @@ export function Dashboard() {
   const [isEditMode, setIsEditMode] = useState(false)
   const [showUnavailable, setShowUnavailable] = useState(false)
   const [showHandleDiff, setShowHandleDiff] = useState(false)
+  const [channelIsUnavailable, setChannelIsUnavailable] = useState(false)
+  const [channelHasHandleDiff, setChannelHasHandleDiff] = useState(false)
   const [dateFilter, setDateFilter] = useState<DateFilterOption>("All Time")
   const [showDateDropdown, setShowDateDropdown] = useState(false)
   // Applied custom range (used for filtering)
@@ -235,8 +237,8 @@ export function Dashboard() {
   const handleSelectChannel = (id: string) => {
     const ch = channelsState.find((c) => c.id === id)!
     setSelectedChannelId(id)
-    setShowUnavailable(ch.isUnavailable === true)
-    setShowHandleDiff(ch.hasHandleDiff === true)
+    setChannelIsUnavailable(ch.isUnavailable === true)
+    setChannelHasHandleDiff(ch.hasHandleDiff === true)
     setVideoPlaying(false)
     setIsEditMode(false)
     setTempValues({
@@ -398,8 +400,8 @@ export function Dashboard() {
               onClick={() => setShowUnavailable((v) => !v)}
               className="flex items-center gap-2 px-4 cursor-pointer flex-shrink-0 select-none"
             >
-              <AlertCircle className={`w-3.5 h-3.5 flex-shrink-0 ${showUnavailable ? "text-red-400" : "text-muted-foreground"}`} />
-              <span className={`text-xs font-medium whitespace-nowrap ${showUnavailable ? "text-foreground" : "text-muted-foreground"}`}>
+              <AlertCircle className={`w-3.5 h-3.5 flex-shrink-0 ${channelIsUnavailable || showUnavailable ? "text-red-400" : "text-muted-foreground"}`} />
+              <span className={`text-xs font-medium whitespace-nowrap ${channelIsUnavailable || showUnavailable ? "text-foreground" : "text-muted-foreground"}`}>
                 Unavailable Handle
               </span>
               <span className={`relative inline-flex w-8 h-4 rounded-full flex-shrink-0 transition-colors duration-200 ${showUnavailable ? "bg-red-600" : "bg-muted-foreground/30"}`}>
@@ -414,8 +416,8 @@ export function Dashboard() {
               onClick={() => setShowHandleDiff((v) => !v)}
               className="flex items-center gap-2 px-4 cursor-pointer flex-shrink-0 select-none"
             >
-              <GitCompare className={`w-3.5 h-3.5 flex-shrink-0 ${showHandleDiff ? "text-amber-400" : "text-muted-foreground"}`} />
-              <span className={`text-xs font-medium whitespace-nowrap ${showHandleDiff ? "text-foreground" : "text-muted-foreground"}`}>
+              <GitCompare className={`w-3.5 h-3.5 flex-shrink-0 ${channelHasHandleDiff || showHandleDiff ? "text-amber-400" : "text-muted-foreground"}`} />
+              <span className={`text-xs font-medium whitespace-nowrap ${channelHasHandleDiff || showHandleDiff ? "text-foreground" : "text-muted-foreground"}`}>
                 Handle Diff
               </span>
               <span className={`relative inline-flex w-8 h-4 rounded-full flex-shrink-0 transition-colors duration-200 ${showHandleDiff ? "bg-amber-500" : "bg-muted-foreground/30"}`}>
