@@ -72,8 +72,8 @@ export async function PATCH(request: Request) {
             requestBody: {
                 valueInputOption: 'RAW',
                 data: [
-                    { range: `Handle Diff!B${sheetRow}`, values: [[previousHandle ?? '']] },
-                    { range: `Handle Diff!C${sheetRow}`, values: [[currentHandle ?? '']] },
+                    { range: `Handle Diff!C${sheetRow}`, values: [[previousHandle ?? '']] },
+                    { range: `Handle Diff!D${sheetRow}`, values: [[currentHandle ?? '']] },
                 ],
             },
         });
