@@ -213,13 +213,36 @@ export function Dashboard() {
   }, [channelsState, searchQuery, showUnavailable, showHandleDiff, dateFilter, customRange, filterValues, isEditMode])
 
   const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
-  const channelInfo = {
+  const [channelInfo, setChannelInfo] = useState({
     about: "—", createdOn: "—", subscribers: "—",
     totalVideos: "—", totalViews: "—", country: "—",
-  }
+  })
 
   // Fetch most popular video when selected channel changes
   // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    setChannelInfo({
+      about: "—", createdOn: "—", subscribers: "—",
+      totalVideos: "—", totalViews: "—", country: "—",
+    })
+    const ch = channelsState.find(c => c.id === selectedChannelId)
+    if (!ch?.handle || ch.handle.toLowerCase().includes('unavailable')) return
+    fetch(`/api/channel-stats?handle=${encodeURIComponent(ch.handle)}&ytUrl=${encodeURIComponent(ch.ytUrl || '')}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          setChannelInfo({
+            about: data.about || '—',
+            subscribers: data.subscribers || '—',
+            totalVideos: data.totalVideos || '—',
+            totalViews: data.totalViews || '—',
+            createdOn: data.createdOn || '—',
+            country: data.country || '—',
+          })
+        }
+      })
+      .catch(() => { })
+  }, [selectedChannelId, channelsState])
   useEffect(() => {
     const handle = channelsState.find(c => c.id === selectedChannelId)?.handle
     if (!handle) return
