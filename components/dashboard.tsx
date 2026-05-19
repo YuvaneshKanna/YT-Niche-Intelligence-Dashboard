@@ -717,22 +717,7 @@ export function Dashboard() {
                   </div>
                 )
               })}
-              {isEditMode && (
-                <>
-                  <div className="w-px self-stretch bg-border flex-shrink-0" />
-                  <div className="flex-1 flex items-stretch">
-                    <div className="relative flex-1 px-3 flex flex-col justify-center">
-                      <span className="text-[10px] uppercase tracking-widest mb-0.5 text-muted-foreground">Verified / Remarks</span>
-                      <input
-                        value={tempValues.verified || ""}
-                        onChange={(e) => setTempValues(p => ({ ...p, verified: e.target.value }))}
-                        className="w-full text-[13px] font-medium text-foreground bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-purple-500 rounded px-1 py-0.5 -mx-1 placeholder:text-muted-foreground"
-                        placeholder="Remarks..."
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
+
             </div>
 
             {/* Edit / Save / Cancel + active filter badge */}
