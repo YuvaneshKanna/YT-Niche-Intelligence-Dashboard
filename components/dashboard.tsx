@@ -606,9 +606,17 @@ export function Dashboard() {
                 // In filter mode: show current filter value ("" = All)
                 const editValue = tempValues[key as keyof typeof tempValues] as string
                 const filterValue = filterValues[key as keyof typeof filterValues]
+                
+                const channelValue = key === "category" ? selectedChannel?.category
+                  : key === "subCategory" ? selectedChannel?.subCategory
+                  : key === "contentType" ? (selectedChannel?.contentType || selectedChannel?.type)
+                  : key === "tracking" ? selectedChannel?.tracking
+                  : ""
+
                 const displayValue = isEditMode
                   ? editValue || "—"
-                  : filterValue || "All"
+                  : filterValue || channelValue || "All"
+
 
                 const isActive = !isEditMode && filterValue !== ""
 
