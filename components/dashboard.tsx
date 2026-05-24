@@ -957,7 +957,7 @@ export function Dashboard() {
                       {selectedChannel?.handle}
                     </h2>
                     {channelInfo.channelName !== '—' && (
-                      <span className="text-sm text-muted-foreground">· {channelInfo.channelName}</span>
+                      <span className="text-lg font-bold text-foreground leading-tight">· {channelInfo.channelName}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 mt-1 flex-wrap">
