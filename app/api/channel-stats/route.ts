@@ -14,7 +14,10 @@ const COUNTRY_NAMES: Record<string, string> = {
     IL: 'Israel', UA: 'Ukraine', CZ: 'Czech Republic', HU: 'Hungary', RO: 'Romania',
     VN: 'Vietnam', TW: 'Taiwan', HK: 'Hong Kong', LK: 'Sri Lanka',
     GR: 'Greece', RS: 'Serbia', HR: 'Croatia', SK: 'Slovakia', BG: 'Bulgaria', LT: 'Lithuania',
-    LV: 'Latvia', EE: 'Estonia', SI: 'Slovenia', GB: "United Kingdom",
+    LV: 'Latvia', EE: 'Estonia', SI: 'Slovenia', GB: "United Kingdom", AD: "Andorra", AL: "Albania",
+    DZ: "Algeria", AO: "Angola", AM: "Armenia", AZ: "Azerbaijan",
+    BA: "Bosnia and Herzegovina", BH: "Bahrain", BB: "Barbados", BY: "Belarus", BZ: "Belize", BJ: "Benin",
+    BM: "Bermuda", BT: "Bhutan", BO: "Bolivia", BW: "Botswana", BN: "Brunei", BF: "Burkina Faso", BI: "Burundi",
 }
 
 const formatNum = (n: string) => {
