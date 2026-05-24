@@ -128,7 +128,7 @@ export function Dashboard() {
   const [isFavouritesOpen, setIsFavouritesOpen] = useState(false)
   const [hoveredSimilarId, setHoveredSimilarId] = useState<string | null>(null)
   const [videoPlaying, setVideoPlaying] = useState(false)
-  const [videoData, setVideoData] = useState<{ videoId: string; title: string; thumbnail: string } | null>(null)
+  const [videoData, setVideoData] = useState<{ videoId: string; title: string; thumbnail: string; publishedAt?: string; views?: string; likes?: string; comments?: string } | null>(null)
   const [videoLoading, setVideoLoading] = useState(false)
 
   useEffect(() => {
@@ -256,7 +256,7 @@ export function Dashboard() {
 
   const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
   const [channelInfo, setChannelInfo] = useState({
-    about: "—", createdOn: "—", subscribers: "—",
+    channelName: "—", about: "—", createdOn: "—", subscribers: "—",
     totalVideos: "—", totalViews: "—", country: "—",
   })
 
@@ -264,7 +264,7 @@ export function Dashboard() {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     setChannelInfo({
-      about: "—", createdOn: "—", subscribers: "—",
+      channelName: "—", about: "—", createdOn: "—", subscribers: "—",
       totalVideos: "—", totalViews: "—", country: "—",
     })
     const ch = channelsState.find(c => c.id === selectedChannelId)
@@ -274,6 +274,7 @@ export function Dashboard() {
       .then(data => {
         if (data.success) {
           setChannelInfo({
+            channelName: data.channelName || '—',
             about: data.about || '—',
             subscribers: data.subscribers || '—',
             totalVideos: data.totalVideos || '—',
@@ -914,6 +915,30 @@ export function Dashboard() {
                 )}
               </div>
             </div>
+            {videoData && (
+              <div className="flex items-center gap-4 px-2 py-2 text-xs text-muted-foreground flex-wrap">
+                {videoData.publishedAt && (
+                  <span className="flex items-center gap-1">
+                    <span className="text-foreground font-medium">Published:</span> {videoData.publishedAt}
+                  </span>
+                )}
+                {videoData.views && (
+                  <span className="flex items-center gap-1">
+                    <span className="text-foreground font-medium">Views:</span> {videoData.views}
+                  </span>
+                )}
+                {videoData.likes && (
+                  <span className="flex items-center gap-1">
+                    <span className="text-foreground font-medium">Likes:</span> {videoData.likes}
+                  </span>
+                )}
+                {videoData.comments && (
+                  <span className="flex items-center gap-1">
+                    <span className="text-foreground font-medium">Comments:</span> {videoData.comments}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* RIGHT — Info Cards stacked vertically, fills height of left column */}
@@ -927,6 +952,9 @@ export function Dashboard() {
                     {selectedChannel?.handle}
                     {selectedChannel?.fullName && ` · ${selectedChannel?.fullName}`}
                   </h2>
+                  {channelInfo.channelName !== '—' && channelInfo.channelName !== selectedChannel?.handle?.replace('@', '') && (
+                    <p className="text-sm text-muted-foreground">{channelInfo.channelName}</p>
+                  )}
                   <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${selectedChannel?.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
                       }`}>{selectedChannel?.type}</span>

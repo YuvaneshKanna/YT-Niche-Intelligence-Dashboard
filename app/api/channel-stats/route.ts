@@ -1,5 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const COUNTRY_NAMES: Record<string, string> = {
+    US: 'United States', GB: 'United Kingdom', IN: 'India', CA: 'Canada',
+    AU: 'Australia', DE: 'Germany', FR: 'France', JP: 'Japan', KR: 'South Korea',
+    BR: 'Brazil', MX: 'Mexico', ES: 'Spain', IT: 'Italy', NL: 'Netherlands',
+    SE: 'Sweden', NO: 'Norway', DK: 'Denmark', FI: 'Finland', PL: 'Poland',
+    RU: 'Russia', CN: 'China', SG: 'Singapore', MY: 'Malaysia', ID: 'Indonesia',
+    TH: 'Thailand', PH: 'Philippines', PK: 'Pakistan', BD: 'Bangladesh',
+    NG: 'Nigeria', ZA: 'South Africa', EG: 'Egypt', KE: 'Kenya', GH: 'Ghana',
+    AR: 'Argentina', CO: 'Colombia', CL: 'Chile', PE: 'Peru', VE: 'Venezuela',
+    NZ: 'New Zealand', IE: 'Ireland', PT: 'Portugal', BE: 'Belgium', CH: 'Switzerland',
+    AT: 'Austria', TR: 'Turkey', SA: 'Saudi Arabia', AE: 'United Arab Emirates',
+    IL: 'Israel', UA: 'Ukraine', CZ: 'Czech Republic', HU: 'Hungary', RO: 'Romania',
+    VN: 'Vietnam', TW: 'Taiwan', HK: 'Hong Kong',
+}
+
+const formatNum = (n: string) => {
+    const num = parseInt(n || '0')
+    if (num >= 1_000_000_000) return (num / 1_000_000_000).toFixed(1) + 'B'
+    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M'
+    if (num >= 1_000) return (num / 1_000).toFixed(1) + 'K'
+    return num.toString()
+}
+
+const formatDate = (iso: string) => {
+    if (!iso) return '—'
+    const d = new Date(iso)
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const handle = searchParams.get('handle')
@@ -33,34 +62,21 @@ export async function GET(request: NextRequest) {
         )
         const data = await res.json()
         const channel = data.items?.[0]
-
         if (!channel) return NextResponse.json({ error: 'No channel data' }, { status: 404 })
 
         const stats = channel.statistics
         const snippet = channel.snippet
-
-        const formatNum = (n: string) => {
-            const num = parseInt(n || '0')
-            if (num >= 1_000_000_000) return (num / 1_000_000_000).toFixed(1) + 'B'
-            if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M'
-            if (num >= 1_000) return (num / 1_000).toFixed(1) + 'K'
-            return num.toString()
-        }
-
-        const formatDate = (iso: string) => {
-            if (!iso) return '—'
-            const d = new Date(iso)
-            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-        }
+        const countryCode = snippet.country || ''
 
         return NextResponse.json({
             success: true,
+            channelName: snippet.title || '—',
             about: snippet.description || '—',
             subscribers: stats.hiddenSubscriberCount ? 'Hidden' : formatNum(stats.subscriberCount),
             totalVideos: formatNum(stats.videoCount),
             totalViews: formatNum(stats.viewCount),
             createdOn: formatDate(snippet.publishedAt),
-            country: snippet.country || '—',
+            country: countryCode ? (COUNTRY_NAMES[countryCode] || countryCode) : '—',
         })
 
     } catch (err) {

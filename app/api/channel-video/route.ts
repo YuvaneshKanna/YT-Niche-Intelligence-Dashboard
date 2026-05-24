@@ -35,8 +35,36 @@ async function getUploadsPlaylistId(channelId: string, apiKey: string): Promise<
   return data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads || null
 }
 
+const formatNum = (n: string | number) => {
+  const num = typeof n === 'string' ? parseInt(n || '0') : n
+  if (num >= 1_000_000_000) return (num / 1_000_000_000).toFixed(1) + 'B'
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M'
+  if (num >= 1_000) return (num / 1_000).toFixed(1) + 'K'
+  return num.toString()
+}
+
+const formatDate = (iso: string) => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+async function getVideoStats(videoId: string, apiKey: string) {
+  const res = await fetch(
+    `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoId}&key=${apiKey}`
+  )
+  const data = await res.json()
+  const item = data.items?.[0]
+  if (!item) return null
+  return {
+    views: formatNum(item.statistics?.viewCount || '0'),
+    likes: formatNum(item.statistics?.likeCount || '0'),
+    comments: formatNum(item.statistics?.commentCount || '0'),
+    publishedAt: formatDate(item.snippet?.publishedAt),
+  }
+}
+
 async function getBestVideoFromPlaylist(playlistId: string, apiKey: string) {
-  // Fetch latest 10 videos from uploads playlist — costs 1 unit
   const res = await fetch(
     `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=10&key=${apiKey}`
   )
@@ -54,21 +82,12 @@ async function getBestVideoFromPlaylist(playlistId: string, apiKey: string) {
     publishedAt: item.snippet?.publishedAt,
   })
 
-  // Try last 7 days first
-  const within7d = data.items.filter((item: any) => {
-    const pub = new Date(item.snippet?.publishedAt)
-    return pub >= day7ago
-  })
+  const within7d = data.items.filter((item: any) => new Date(item.snippet?.publishedAt) >= day7ago)
   if (within7d.length > 0) return toVideo(within7d[0])
 
-  // Try last 30 days
-  const within30d = data.items.filter((item: any) => {
-    const pub = new Date(item.snippet?.publishedAt)
-    return pub >= day30ago
-  })
+  const within30d = data.items.filter((item: any) => new Date(item.snippet?.publishedAt) >= day30ago)
   if (within30d.length > 0) return toVideo(within30d[0])
 
-  // Fall back to most recent
   return toVideo(data.items[0])
 }
 
@@ -86,15 +105,20 @@ export async function GET(request: NextRequest) {
     // Direct video ID — costs 1 unit
     if (parsed.videoId) {
       const res = await fetch(
-        `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${parsed.videoId}&key=${apiKey}`
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${parsed.videoId}&key=${apiKey}`
       )
       const data = await res.json()
       if (data.items?.[0]) {
         const snippet = data.items[0].snippet
+        const stats = data.items[0].statistics
         return NextResponse.json({
           videoId: parsed.videoId,
           title: snippet.title,
           thumbnail: snippet.thumbnails?.high?.url || snippet.thumbnails?.default?.url,
+          publishedAt: formatDate(snippet.publishedAt),
+          views: formatNum(stats?.viewCount || '0'),
+          likes: formatNum(stats?.likeCount || '0'),
+          comments: formatNum(stats?.commentCount || '0'),
         })
       }
     }
@@ -111,15 +135,22 @@ export async function GET(request: NextRequest) {
 
     if (!channelId) return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
 
-    // Get uploads playlist — costs 1 unit
     const playlistId = await getUploadsPlaylistId(channelId, apiKey)
     if (!playlistId) return NextResponse.json({ error: 'No uploads playlist' }, { status: 404 })
 
-    // Get best video using 7d → 30d → most recent logic — costs 1 unit
     const video = await getBestVideoFromPlaylist(playlistId, apiKey)
     if (!video) return NextResponse.json({ error: 'No videos found' }, { status: 404 })
 
-    return NextResponse.json(video)
+    // Fetch video stats — costs 1 unit
+    const stats = await getVideoStats(video.videoId, apiKey)
+
+    return NextResponse.json({
+      ...video,
+      publishedAt: formatDate(video.publishedAt),
+      views: stats?.views || '—',
+      likes: stats?.likes || '—',
+      comments: stats?.comments || '—',
+    })
 
   } catch (err) {
     console.error('YouTube API error:', err)
