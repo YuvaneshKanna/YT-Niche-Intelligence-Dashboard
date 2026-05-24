@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
 import { SimilarChannelCard } from "@/components/similar-channel-card"
+import { UserSelectModal } from "@/components/user-select-modal"
 
 import {
   type Channel,
@@ -121,14 +122,55 @@ export function Dashboard() {
   const activeFilterCount = Object.values(filterValues).filter(v => v !== "").length
 
   const [favourites, setFavourites] = useState<string[]>([])
+  const [currentUser, setCurrentUser] = useState<string>("")
+  const [favouriteFilter, setFavouriteFilter] = useState<string>("All")
+  const [favouriteData, setFavouriteData] = useState<{ ytUrl: string; addedBy: string; addedAt: string }[]>([])
   const [isFavouritesOpen, setIsFavouritesOpen] = useState(false)
   const [hoveredSimilarId, setHoveredSimilarId] = useState<string | null>(null)
   const [videoPlaying, setVideoPlaying] = useState(false)
   const [videoData, setVideoData] = useState<{ videoId: string; title: string; thumbnail: string } | null>(null)
   const [videoLoading, setVideoLoading] = useState(false)
 
-  const toggleFavourite = (id: string) => {
-    setFavourites(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id])
+  useEffect(() => {
+    fetch('/api/favourites')
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          setFavouriteData(data.favourites)
+          setFavourites(data.favourites.map((f: any) => f.ytUrl))
+        }
+      })
+      .catch(() => { })
+  }, [])
+
+  const toggleFavourite = async (id: string) => {
+    const channel = channelsState.find(c => c.id === id)
+    if (!channel || !currentUser) return
+    const ytUrl = channel.ytUrl
+    const isCurrentlyFav = favouriteData.some(f => f.ytUrl === ytUrl && f.addedBy === currentUser)
+
+    if (isCurrentlyFav) {
+      // Remove
+      setFavouriteData(prev => prev.filter(f => !(f.ytUrl === ytUrl && f.addedBy === currentUser)))
+      setFavourites(prev =>
+        prev.filter(url => url !== ytUrl)
+      )
+      await fetch('/api/favourites', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ytUrl, addedBy: currentUser }),
+      })
+    } else {
+      // Add
+      const newFav = { ytUrl: ytUrl as string, addedBy: currentUser as string, addedAt: new Date().toISOString() }
+      setFavouriteData((prev: { ytUrl: string; addedBy: string; addedAt: string }[]) => [...prev, newFav])
+      setFavourites((prev: string[]) => [...prev, ytUrl as string])
+      await fetch('/api/favourites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ytUrl, addedBy: currentUser }),
+      })
+    }
   }
 
   const exportFavouritesToExcel = () => {
@@ -898,10 +940,10 @@ export function Dashboard() {
                   <button
                     onClick={() => toggleFavourite(selectedChannel?.id)}
                     className="flex items-center justify-center transition-colors hover:scale-110"
-                    title={favourites.includes(selectedChannel?.id) ? "Remove from Favourites" : "Add to Favourites"}
+                    title={favouriteData.some(f => f.ytUrl === selectedChannel?.ytUrl && f.addedBy === currentUser) ? "Remove from Favourites" : "Add to Favourites"}
                   >
                     <Star
-                      className={`w-5 h-5 transition-colors ${favourites.includes(selectedChannel?.id) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground hover:text-foreground'}`}
+                      className={`w-5 h-5 transition-colors ${favouriteData.some(f => f.ytUrl === selectedChannel?.ytUrl && f.addedBy === currentUser) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground hover:text-foreground'}`}
                     />
                   </button>
                   {selectedChannel?.ytUrl ? (
@@ -1089,30 +1131,61 @@ export function Dashboard() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {favourites.length === 0 ? (
+          {favouriteData.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center mt-4">
               No favourites yet. Click <Star className="w-3 h-3 inline mx-1" /> to add channels.
             </p>
           ) : (
-            channelsState.filter(c => favourites.includes(c.id)).map(ch => (
-              <div key={ch.id} className="flex items-center justify-between bg-background border border-border p-2 rounded-lg group cursor-pointer hover:border-primary/50 transition-colors" onClick={() => { handleSelectChannel(ch.id); setIsFavouritesOpen(false); }}>
-                <div className="flex items-center gap-2 overflow-hidden">
-                  <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 text-xs font-bold">
-                    {ch.handle.replace("@", "").charAt(0).toUpperCase()}
+            <>
+              {/* Filter pills by user */}
+              {(() => {
+                const favouriteUsers = ["All", ...new Set(favouriteData.map(f => f.addedBy))]
+                return (
+                  <div className="flex flex-wrap gap-1.5 pb-2">
+                    {favouriteUsers.map(user => (
+                      <button
+                        key={user}
+                        onClick={() => setFavouriteFilter(user)}
+                        className={`text-[10px] px-2.5 py-1 rounded-full font-medium transition-colors ${favouriteFilter === user
+                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                          : "bg-muted/60 text-muted-foreground border border-border hover:text-foreground"
+                          }`}
+                      >
+                        {user}
+                      </button>
+                    ))}
                   </div>
-                  <div className="overflow-hidden">
-                    <p className="text-sm font-bold truncate text-foreground">{ch.handle}</p>
-                    <p className="text-[10px] text-muted-foreground truncate">{ch.category}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); toggleFavourite(ch.id); }}
-                  className="text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ))
+                )
+              })()}
+
+              {/* Favourite channel cards */}
+              {channelsState
+                .filter(ch => favouriteData.some(f => f.ytUrl === ch.ytUrl && (favouriteFilter === "All" || f.addedBy === favouriteFilter)))
+                .map(ch => {
+                  const addedBy = favouriteData.find(f => f.ytUrl === ch.ytUrl)?.addedBy
+                  return (
+                    <div key={ch.id} className="flex items-center justify-between bg-background border border-border p-2 rounded-lg group cursor-pointer hover:border-primary/50 transition-colors" onClick={() => { handleSelectChannel(ch.id); setIsFavouritesOpen(false); }}>
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 text-xs font-bold">
+                          {ch.handle.replace("@", "").charAt(0).toUpperCase()}
+                        </div>
+                        <div className="overflow-hidden">
+                          <p className="text-sm font-bold truncate text-foreground">{ch.handle}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">{ch.category}</p>
+                          <p className="text-[10px] text-muted-foreground mt-1">Added by {addedBy}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleFavourite(ch.id); }}
+                        className="text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )
+                })
+              }
+            </>
           )}
         </div>
 
@@ -1126,6 +1199,7 @@ export function Dashboard() {
           </Button>
         </div>
       </div>
+      <UserSelectModal onSelect={(user) => setCurrentUser(user)} />
     </div >
   )
 }
