@@ -890,7 +890,7 @@ export function Dashboard() {
         <div className="flex flex-1 min-h-0 px-5 pt-4 pb-4 gap-4 overflow-hidden">
 
           {/* LEFT — Video Player */}
-          <div className="w-[60%] flex flex-col min-h-0">
+          <div className="w-[60%] flex flex-col min-h-0 overflow-y-auto">
             <div className="w-full rounded-xl overflow-hidden bg-black relative" style={{ aspectRatio: '16/9' }}>
               <div className="absolute inset-0">
                 {videoLoading ? (
