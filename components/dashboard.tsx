@@ -915,27 +915,31 @@ export function Dashboard() {
                 )}
               </div>
             </div>
-            {videoData && (
-              <div className="flex items-center gap-4 px-2 py-2 text-xs text-muted-foreground flex-wrap">
+            {videoData && (videoData.publishedAt || videoData.views || videoData.likes || videoData.comments) && (
+              <div className="flex gap-2 mt-2 flex-wrap">
                 {videoData.publishedAt && (
-                  <span className="flex items-center gap-1">
-                    <span className="text-foreground font-medium">Published:</span> {videoData.publishedAt}
-                  </span>
+                  <div className="flex flex-col gap-0.5 bg-muted/60 border border-border rounded-lg px-3 py-2 flex-1 min-w-[80px]">
+                    <span className="text-[9px] text-muted-foreground uppercase tracking-wide">Published</span>
+                    <span className="text-xs font-semibold text-foreground">{videoData.publishedAt}</span>
+                  </div>
                 )}
                 {videoData.views && (
-                  <span className="flex items-center gap-1">
-                    <span className="text-foreground font-medium">Views:</span> {videoData.views}
-                  </span>
+                  <div className="flex flex-col gap-0.5 bg-muted/60 border border-border rounded-lg px-3 py-2 flex-1 min-w-[60px]">
+                    <span className="text-[9px] text-muted-foreground uppercase tracking-wide">Views</span>
+                    <span className="text-xs font-semibold text-foreground">{videoData.views}</span>
+                  </div>
                 )}
                 {videoData.likes && (
-                  <span className="flex items-center gap-1">
-                    <span className="text-foreground font-medium">Likes:</span> {videoData.likes}
-                  </span>
+                  <div className="flex flex-col gap-0.5 bg-muted/60 border border-border rounded-lg px-3 py-2 flex-1 min-w-[60px]">
+                    <span className="text-[9px] text-muted-foreground uppercase tracking-wide">Likes</span>
+                    <span className="text-xs font-semibold text-foreground">{videoData.likes}</span>
+                  </div>
                 )}
                 {videoData.comments && (
-                  <span className="flex items-center gap-1">
-                    <span className="text-foreground font-medium">Comments:</span> {videoData.comments}
-                  </span>
+                  <div className="flex flex-col gap-0.5 bg-muted/60 border border-border rounded-lg px-3 py-2 flex-1 min-w-[60px]">
+                    <span className="text-[9px] text-muted-foreground uppercase tracking-wide">Comments</span>
+                    <span className="text-xs font-semibold text-foreground">{videoData.comments}</span>
+                  </div>
                 )}
               </div>
             )}
