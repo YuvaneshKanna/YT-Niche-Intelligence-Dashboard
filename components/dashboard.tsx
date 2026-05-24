@@ -952,13 +952,14 @@ export function Dashboard() {
             <div className="flex flex-col gap-2 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <h2 className="text-lg font-bold text-foreground leading-tight">
-                    {selectedChannel?.handle}
-                    {selectedChannel?.fullName && ` · ${selectedChannel?.fullName}`}
-                  </h2>
-                  {channelInfo.channelName !== '—' && channelInfo.channelName !== selectedChannel?.handle?.replace('@', '') && (
-                    <p className="text-sm text-muted-foreground">{channelInfo.channelName}</p>
-                  )}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-lg font-bold text-foreground leading-tight">
+                      {selectedChannel?.handle}
+                    </h2>
+                    {channelInfo.channelName !== '—' && (
+                      <span className="text-sm text-muted-foreground">· {channelInfo.channelName}</span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${selectedChannel?.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
                       }`}>{selectedChannel?.type}</span>
