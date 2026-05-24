@@ -12,7 +12,9 @@ const COUNTRY_NAMES: Record<string, string> = {
     NZ: 'New Zealand', IE: 'Ireland', PT: 'Portugal', BE: 'Belgium', CH: 'Switzerland',
     AT: 'Austria', TR: 'Turkey', SA: 'Saudi Arabia', AE: 'United Arab Emirates',
     IL: 'Israel', UA: 'Ukraine', CZ: 'Czech Republic', HU: 'Hungary', RO: 'Romania',
-    VN: 'Vietnam', TW: 'Taiwan', HK: 'Hong Kong',
+    VN: 'Vietnam', TW: 'Taiwan', HK: 'Hong Kong', LK: 'Sri Lanka',
+    GR: 'Greece', RS: 'Serbia', HR: 'Croatia', SK: 'Slovakia', BG: 'Bulgaria', LT: 'Lithuania',
+    LV: 'Latvia', EE: 'Estonia', SI: 'Slovenia', GB: "United Kingdom",
 }
 
 const formatNum = (n: string) => {
