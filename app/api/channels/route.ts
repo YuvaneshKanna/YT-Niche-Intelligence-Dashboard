@@ -31,7 +31,7 @@ export async function GET() {
         const [manualRes, diffRes] = await Promise.all([
             sheets.spreadsheets.values.get({
                 spreadsheetId,
-                range: 'Manual Sheet!A2:I',
+                range: 'Manual Sheet!A2:L',
             }),
             sheets.spreadsheets.values.get({
                 spreadsheetId,
@@ -54,12 +54,15 @@ export async function GET() {
             ytUrl: (row[0] || '').trim(),
             handle: (row[1] || '').trim(),
             type: normalizeType(row[2]),
-            nicheCategory: (row[3] || '').trim(),
-            subCategory: (row[4] || '').trim(),
-            verified: (row[5] || '').trim(),
-            sharedOn: normalizeDate(row[6]),
-            tracking: (row[7] || '').trim(),
-            postedBy: (row[8] || '').trim(),
+            niche: (row[3] || '').trim(),
+            category: (row[4] || '').trim(),
+            format: (row[5] || '').trim(),
+            producedBy: (row[6] || '').trim(),
+            nicheGroup: (row[7] || '').trim(),
+            verified: (row[8] || '').trim(),
+            sharedOn: normalizeDate(row[9]),
+            tracking: (row[10] || '').trim(),
+            postedBy: (row[11] || '').trim(),
             hasHandleDiff: diffUrls.has(normUrl(row[0] || '')),
         }));
 
@@ -72,7 +75,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
     try {
         const body = await request.json();
-        const { ytUrl, type, nicheCategory, subCategory, verified, tracking, handle } = body;
+        const { ytUrl, type, niche, category, format, producedBy, nicheGroup, verified, tracking, handle } = body;
 
         if (!ytUrl) {
             return NextResponse.json({ success: false, error: 'ytUrl is required' }, { status: 400 });
@@ -102,10 +105,13 @@ export async function PATCH(request: Request) {
                 valueInputOption: 'RAW',
                 data: [
                     { range: `Manual Sheet!C${sheetRow}`, values: [[type ?? '']] },
-                    { range: `Manual Sheet!D${sheetRow}`, values: [[nicheCategory ?? '']] },
-                    { range: `Manual Sheet!E${sheetRow}`, values: [[subCategory ?? '']] },
-                    { range: `Manual Sheet!F${sheetRow}`, values: [[verified ?? '']] },
-                    { range: `Manual Sheet!H${sheetRow}`, values: [[tracking ?? '']] },
+                    { range: `Manual Sheet!D${sheetRow}`, values: [[niche ?? '']] },
+                    { range: `Manual Sheet!E${sheetRow}`, values: [[category ?? '']] },
+                    { range: `Manual Sheet!F${sheetRow}`, values: [[format ?? '']] },
+                    { range: `Manual Sheet!G${sheetRow}`, values: [[producedBy ?? '']] },
+                    { range: `Manual Sheet!H${sheetRow}`, values: [[nicheGroup ?? '']] },
+                    { range: `Manual Sheet!I${sheetRow}`, values: [[verified ?? '']] },
+                    { range: `Manual Sheet!K${sheetRow}`, values: [[tracking ?? '']] },
                     ...(handle ? [{ range: `Manual Sheet!B${sheetRow}`, values: [[handle]] }] : []),
                 ],
             },

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Channel, ChannelType, ContentType, NicheCategory, TrackingStatus } from './constants'
+import type { Channel, ChannelType, ContentType, TrackingStatus } from './constants'
 
 export function useChannels() {
     const [channels, setChannels] = useState<Channel[]>([])
@@ -20,8 +20,11 @@ export function useChannels() {
                     ytUrl: c.ytUrl,
                     type: (c.type === 'Shorts' ? 'Shorts' : 'Long-Form') as ChannelType,
                     contentType: (c.type || 'Long-Form') as ContentType,
-                    category: (c.nicheCategory || '') as NicheCategory,
-                    subCategory: c.subCategory || '',
+                    niche: c.niche || '',
+                    category: c.category || '',
+                    format: c.format || '',
+                    producedBy: c.producedBy || '',
+                    nicheGroup: c.nicheGroup || '',
                     verified: c.verified || '',
                     tracking: (c.tracking?.toUpperCase() === 'YES' ? 'YES' : 'NO') as TrackingStatus,
                     sharedOn: c.sharedOn || '',

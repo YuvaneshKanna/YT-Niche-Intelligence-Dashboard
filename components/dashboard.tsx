@@ -18,7 +18,6 @@ import {
   type Channel,
   type TrackingStatus,
   type ContentType,
-  type NicheCategory,
 } from "@/lib/constants"
 import { useChannels } from "@/lib/useChannels"
 
@@ -61,15 +60,42 @@ export function Dashboard() {
   const { channels: initialChannels, loading, setChannels: setChannelsState } = useChannels()
   const [channelsState, setChannelsState2] = useState<Channel[]>([])
 
+  const [masterRules, setMasterRules] = useState<{
+    niches: string[], categories: string[], formats: string[], producedBy: string[]
+  }>({ niches: [], categories: [], formats: [], producedBy: [] })
+
+  useEffect(() => {
+    fetch('/api/master-rules')
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) setMasterRules(data)
+      })
+      .catch(() => {})
+  }, [])
+
+  const createNewMasterValue = async (field: 'niche' | 'category' | 'format' | 'producedBy', value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    await fetch('/api/master-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field, value: trimmed }),
+    })
+    setMasterRules(prev => ({
+      ...prev,
+      [field === 'producedBy' ? 'producedBy' : field + 's']: 
+        [...(prev[field === 'producedBy' ? 'producedBy' : field + 's' as keyof typeof prev] as string[]), trimmed]
+    }))
+  }
+
+  const [creatingNewField, setCreatingNewField] = useState<string | null>(null)
+
   const CATEGORIES = useMemo(() =>
     [...new Set(channelsState.map(c => c.category).filter(Boolean))].sort(),
     [channelsState]
   )
 
-  const SUB_CATEGORIES = useMemo(() =>
-    [...new Set(channelsState.map(c => c.subCategory).filter(Boolean))].sort(),
-    [channelsState]
-  )
+
 
   const CONTENT_TYPES = useMemo(() =>
     [...new Set(channelsState.map(c => c.type).filter(Boolean))].sort(),
@@ -109,13 +135,15 @@ export function Dashboard() {
   const dateDropdownRef = useRef<HTMLDivElement>(null)
   const settingsBarRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const [openField, setOpenField] = useState<"category" | "subCategory" | "contentType" | "tracking" | null>(null)
+  const [openField, setOpenField] = useState<"niche" | "category" | "format" | "producedBy" | "contentType" | "tracking" | null>(null)
   const [fieldSearch, setFieldSearch] = useState("")
 
   // Filter mode state — empty string = "All" (no filter)
   const [filterValues, setFilterValues] = useState({
+    niche: "",
     category: "",
-    subCategory: "",
+    format: "",
+    producedBy: "",
     contentType: "",
     tracking: "",
   })
@@ -178,8 +206,9 @@ export function Dashboard() {
     const data = favChannels.map(c => ({
       Handle: c.handle,
       "Channel Name": c.fullName || "",
+      Niche: c.niche,
       Category: c.category,
-      "Sub-Category": c.subCategory,
+      Format: c.format,
       Type: c.type,
       Tracking: c.tracking,
       "Verified/Remarks": c.verified || "",
@@ -194,8 +223,11 @@ export function Dashboard() {
   }
 
   const [tempValues, setTempValues] = useState({
-    category: "" as string,
-    subCategory: "",
+    niche: "",
+    category: "",
+    format: "",
+    producedBy: "",
+    nicheGroup: "",
     contentType: "Long-Form" as string,
     tracking: "NO" as string,
     verified: "",
@@ -239,8 +271,10 @@ export function Dashboard() {
       if (!isInDateRange(channel.sharedOn, dateFilter, customRange)) return false
       // Dropdown filters (AND logic — only applied in filter mode)
       if (!isEditMode) {
+        if (filterValues.niche && channel?.niche !== filterValues.niche) return false
         if (filterValues.category && channel?.category !== filterValues.category) return false
-        if (filterValues.subCategory && channel?.subCategory !== filterValues.subCategory) return false
+        if (filterValues.format && channel?.format !== filterValues.format) return false
+        if (filterValues.producedBy && channel?.producedBy !== filterValues.producedBy) return false
         if (filterValues.contentType && channel?.type !== filterValues.contentType) return false
         if (filterValues.tracking && channel?.tracking !== filterValues.tracking) return false
       }
@@ -248,6 +282,7 @@ export function Dashboard() {
       const query = searchQuery.toLowerCase()
       return (
         channel?.handle?.toLowerCase().includes(query) ||
+        channel?.niche?.toLowerCase().includes(query) ||
         channel?.category?.toLowerCase().includes(query) ||
         channel?.type?.toLowerCase().includes(query)
       )
@@ -339,8 +374,11 @@ export function Dashboard() {
     setVideoPlaying(false)
     setIsEditMode(false)
     setTempValues({
-      category: ch.category,
-      subCategory: ch.subCategory,
+      niche: ch.niche || '',
+      category: ch.category || '',
+      format: ch.format || '',
+      producedBy: ch.producedBy || '',
+      nicheGroup: ch.nicheGroup || '',
       contentType: ch.contentType || "Long-Form",
       tracking: ch.tracking,
       verified: ch.verified,
@@ -349,8 +387,11 @@ export function Dashboard() {
 
   const handleEdit = () => {
     setTempValues({
-      category: selectedChannel?.category,
-      subCategory: selectedChannel?.subCategory,
+      niche: selectedChannel?.niche || '',
+      category: selectedChannel?.category || '',
+      format: selectedChannel?.format || '',
+      producedBy: selectedChannel?.producedBy || '',
+      nicheGroup: selectedChannel?.nicheGroup || '',
       contentType: selectedChannel?.contentType || "Long-Form",
       tracking: selectedChannel?.tracking,
       verified: selectedChannel?.verified,
@@ -365,8 +406,11 @@ export function Dashboard() {
         c.id === selectedChannelId
           ? {
             ...c,
-            category: tempValues.category as NicheCategory,
-            subCategory: tempValues.subCategory,
+            niche: tempValues.niche,
+            category: tempValues.category,
+            format: tempValues.format,
+            producedBy: tempValues.producedBy,
+            nicheGroup: tempValues.nicheGroup,
             contentType: tempValues.contentType as ContentType,
             tracking: tempValues.tracking as TrackingStatus,
             verified: tempValues.verified,
@@ -384,8 +428,11 @@ export function Dashboard() {
         body: JSON.stringify({
           ytUrl: selectedChannel?.ytUrl,
           type: tempValues.contentType,
-          nicheCategory: tempValues.category,
-          subCategory: tempValues.subCategory,
+          niche: tempValues.niche,
+          category: tempValues.category,
+          format: tempValues.format,
+          producedBy: tempValues.producedBy,
+          nicheGroup: tempValues.nicheGroup,
           verified: tempValues.verified,
           tracking: tempValues.tracking,
         }),
@@ -436,8 +483,11 @@ export function Dashboard() {
 
   const handleCancel = () => {
     setTempValues({
-      category: selectedChannel?.category,
-      subCategory: selectedChannel?.subCategory,
+      niche: selectedChannel?.niche || '',
+      category: selectedChannel?.category || '',
+      format: selectedChannel?.format || '',
+      producedBy: selectedChannel?.producedBy || '',
+      nicheGroup: selectedChannel?.nicheGroup || '',
       contentType: selectedChannel?.contentType || "Long-Form",
       tracking: selectedChannel?.tracking,
       verified: selectedChannel?.verified,
@@ -446,13 +496,13 @@ export function Dashboard() {
   }
 
   // Edit mode: update temp value
-  const handleFieldChange = (field: "category" | "subCategory" | "contentType" | "tracking", value: string) => {
+  const handleFieldChange = (field: "niche" | "category" | "format" | "producedBy" | "contentType" | "tracking", value: string) => {
     setTempValues((p) => ({ ...p, [field]: value }))
     setOpenField(null)
   }
 
   // Filter mode: update filter value (empty = All)
-  const handleFilterChange = (field: "category" | "subCategory" | "contentType" | "tracking", value: string) => {
+  const handleFilterChange = (field: "niche" | "category" | "format" | "producedBy" | "contentType" | "tracking", value: string) => {
     setFilterValues((p) => ({ ...p, [field]: value }))
     setOpenField(null)
   }
@@ -462,7 +512,7 @@ export function Dashboard() {
       (c) =>
         c.id !== selectedChannelId &&
         c.type === selectedChannel?.type &&
-        c.category === selectedChannel?.category
+        c.niche === selectedChannel?.niche
     ),
     [channelsState, selectedChannelId, selectedChannel]
   )
@@ -735,8 +785,10 @@ export function Dashboard() {
             {/* Inline searchable dropdowns — FILTER MODE or EDIT MODE */}
             <div className="flex items-stretch flex-nowrap flex-1" ref={settingsBarRef}>
               {([
-                { key: "category" as const, label: "Category", options: CATEGORIES as readonly string[] },
-                { key: "subCategory" as const, label: "Sub-Category", options: SUB_CATEGORIES as readonly string[] },
+                { key: "niche" as const, label: "Niche", options: [...new Set([...masterRules.niches, ...channelsState.map(c => c.niche).filter(Boolean)])] as readonly string[] },
+                { key: "category" as const, label: "Category", options: masterRules.categories as readonly string[] },
+                { key: "format" as const, label: "Format", options: masterRules.formats as readonly string[] },
+                { key: "producedBy" as const, label: "Produced By", options: masterRules.producedBy as readonly string[] },
                 { key: "contentType" as const, label: "Type", options: CONTENT_TYPES as readonly string[] },
                 { key: "tracking" as const, label: "Tracking", options: TRACKING_STATUSES as readonly string[] },
               ]).map(({ key, label, options }, idx, arr) => {
@@ -747,11 +799,13 @@ export function Dashboard() {
                 const editValue = tempValues[key as keyof typeof tempValues] as string
                 const filterValue = filterValues[key as keyof typeof filterValues]
 
-                const channelValue = key === "category" ? selectedChannel?.category
-                  : key === "subCategory" ? selectedChannel?.subCategory
-                    : key === "contentType" ? (selectedChannel?.contentType || selectedChannel?.type)
-                      : key === "tracking" ? selectedChannel?.tracking
-                        : ""
+                const channelValue = key === "niche" ? selectedChannel?.niche
+                  : key === "category" ? selectedChannel?.category
+                    : key === "format" ? selectedChannel?.format
+                      : key === "producedBy" ? selectedChannel?.producedBy
+                        : key === "contentType" ? (selectedChannel?.contentType || selectedChannel?.type)
+                          : key === "tracking" ? selectedChannel?.tracking
+                            : ""
 
                 const displayValue = isEditMode
                   ? editValue || "—"
@@ -812,8 +866,8 @@ export function Dashboard() {
                             </div>
                           </div>
                           <div className="max-h-60 overflow-y-auto py-1">
-                            {/* "All" option — only for category & subCategory in filter mode */}
-                            {!isEditMode && (key === "category" || key === "subCategory") && (
+                            {/* "All" option — only for filter mode */}
+                            {!isEditMode && (key === "niche" || key === "category" || key === "format" || key === "producedBy" || key === "contentType" || key === "tracking") && (
                               <button
                                 onClick={() => handleFilterChange(key, "")}
                                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${filterValue === "" ? "bg-purple-500/10" : "hover:bg-white/5"
@@ -845,6 +899,33 @@ export function Dashboard() {
                                 </button>
                               )
                             })}
+                            
+                            {/* Create New option */}
+                            {isEditMode && (key === "niche" || key === "category" || key === "format" || key === "producedBy") && (
+                              <div className="px-2 py-2 mt-1 border-t border-border">
+                                <form 
+                                  onSubmit={(e) => {
+                                    e.preventDefault()
+                                    const form = e.target as HTMLFormElement
+                                    const input = form.elements.namedItem('newVal') as HTMLInputElement
+                                    const val = input.value
+                                    if (val) {
+                                      createNewMasterValue(key as "niche" | "category" | "format" | "producedBy", val)
+                                      handleFieldChange(key, val)
+                                      setOpenField(null)
+                                    }
+                                  }}
+                                  className="flex items-center gap-2"
+                                >
+                                  <input 
+                                    name="newVal"
+                                    placeholder="Create New..."
+                                    className="w-full text-xs bg-background border border-border rounded-md px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                  />
+                                  <button type="submit" className="text-[10px] font-medium bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700 transition-colors">Add</button>
+                                </form>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
@@ -964,9 +1045,9 @@ export function Dashboard() {
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${selectedChannel?.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
                       }`}>{selectedChannel?.type}</span>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/20 text-primary">
-                      {selectedChannel?.category}
+                      {selectedChannel?.niche}
                     </span>
-                    <span className="text-[10px] text-muted-foreground italic">{selectedChannel?.subCategory}</span>
+                    <span className="text-[10px] text-muted-foreground italic">{selectedChannel?.category}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -1089,6 +1170,19 @@ export function Dashboard() {
               <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Country</span>
               <span className="text-sm font-bold text-foreground">{channelInfo.country}</span>
             </div>
+
+            {/* Niche Group (Edit Mode Only) */}
+            {isEditMode && (
+              <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Niche Group</span>
+                <input
+                  value={tempValues.nicheGroup}
+                  onChange={(e) => setTempValues((p) => ({ ...p, nicheGroup: e.target.value }))}
+                  placeholder="Enter Niche Group"
+                  className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-purple-500"
+                />
+              </div>
+            )}
 
             {/* Verified / Remarks card */}
             <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">

@@ -49,13 +49,13 @@ export function ChannelCard({ channel, isActive, onClick }: ChannelCardProps) {
           variant="secondary"
           className="text-xs px-2 py-0.5 bg-primary/20 text-primary hover:bg-primary/30 flex-shrink-0"
         >
-          {channel.category}
+          {channel.niche}
         </Badge>
       </div>
 
-      {/* Row 4: Sub-Category in small muted italic text */}
+      {/* Row 4: Category in small muted italic text */}
       <p className="text-xs text-muted-foreground italic mt-1.5">
-        {channel.subCategory}
+        {channel.category}
       </p>
 
       {/* Row 5: Shared on date */}

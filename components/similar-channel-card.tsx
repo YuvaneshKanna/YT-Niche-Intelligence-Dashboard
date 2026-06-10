@@ -83,9 +83,9 @@ export function SimilarChannelCard({ channel, onSelect }: SimilarChannelCardProp
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${channel.type === 'Shorts' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
                         }`}>{channel.type}</span>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/20 text-primary">
-                        {channel.category}
+                        {channel.niche}
                     </span>
-                    <span className="text-[10px] text-muted-foreground italic">· {channel.subCategory}</span>
+                    <span className="text-[10px] text-muted-foreground italic">· {channel.category}</span>
                 </div>
             </div>
         </div>
