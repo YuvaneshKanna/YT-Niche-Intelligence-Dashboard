@@ -52,29 +52,39 @@ export async function POST(request: Request) {
     if (!field || !value) {
       return NextResponse.json({ success: false, error: 'field and value required' }, { status: 400 })
     }
-    
+
     const fieldToColumn: Record<string, string> = {
       niche: 'A',
-      category: 'B', 
+      category: 'B',
       format: 'C',
       producedBy: 'D',
     }
-    
+
     const col = fieldToColumn[field]
     if (!col) {
       return NextResponse.json({ success: false, error: 'Invalid field' }, { status: 400 })
     }
-    
+
     const auth = getAuthClient()
     const sheets = google.sheets({ version: 'v4', auth })
-    
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: `Master Rule Table!${col}:${col}`,
+    const spreadsheetId = process.env.GOOGLE_SHEET_ID
+
+    // Find the next empty row in the specific column
+    const existing = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `Master Rule Table!${col}2:${col}`,
+    })
+
+    const rows = existing.data.values || []
+    const nextRow = rows.length + 2
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `Master Rule Table!${col}${nextRow}`,
       valueInputOption: 'RAW',
       requestBody: { values: [[value.trim()]] },
     })
-    
+
     return NextResponse.json({ success: true })
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 })
