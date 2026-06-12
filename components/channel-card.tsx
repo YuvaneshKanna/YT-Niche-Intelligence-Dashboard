@@ -58,6 +58,12 @@ export function ChannelCard({ channel, isActive, onClick }: ChannelCardProps) {
         {channel.category}
       </p>
 
+      {channel.nicheGroup && (
+        <div className="mt-1">
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/20 text-primary">{channel.nicheGroup}</span>
+        </div>
+      )}
+
       {/* Row 5: Shared on date */}
       <p className="text-xs text-muted-foreground mt-1">
         Shared on {channel.sharedOn}

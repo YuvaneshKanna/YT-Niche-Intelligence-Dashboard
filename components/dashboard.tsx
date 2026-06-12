@@ -89,13 +89,18 @@ export function Dashboard() {
   }
 
   const [creatingNewField, setCreatingNewField] = useState<string | null>(null)
+  const [nicheGroupCreateMode, setNicheGroupCreateMode] = useState(false)
+  const [nicheGroupInput, setNicheGroupInput] = useState("")
+
+  const nicheGroups = useMemo(() =>
+    [...new Set(channelsState.map(c => c.nicheGroup).filter(Boolean))].sort(),
+    [channelsState]
+  )
 
   const CATEGORIES = useMemo(() =>
     [...new Set(channelsState.map(c => c.category).filter(Boolean))].sort(),
     [channelsState]
   )
-
-
 
   const CONTENT_TYPES = useMemo(() =>
     [...new Set(channelsState.map(c => c.type).filter(Boolean))].sort(),
@@ -1171,16 +1176,77 @@ export function Dashboard() {
               <span className="text-sm font-bold text-foreground">{channelInfo.country}</span>
             </div>
 
-            {/* Niche Group (Edit Mode Only) */}
-            {isEditMode && (
+            {/* Niche Group */}
+            {(isEditMode || (!isEditMode && selectedChannel?.nicheGroup)) && (
               <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Niche Group</span>
-                <input
-                  value={tempValues.nicheGroup}
-                  onChange={(e) => setTempValues((p) => ({ ...p, nicheGroup: e.target.value }))}
-                  placeholder="Enter Niche Group"
-                  className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-purple-500"
-                />
+                {isEditMode ? (
+                  <div className="flex flex-col gap-0.5">
+                    <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Niche Group</label>
+                    {nicheGroupCreateMode ? (
+                      <div className="flex gap-1">
+                        <input
+                          value={nicheGroupInput}
+                          onChange={e => setNicheGroupInput(e.target.value)}
+                          placeholder="Type new niche group..."
+                          className="flex-1 px-2 py-1 text-xs rounded-md bg-background border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && nicheGroupInput.trim()) {
+                              setTempValues(prev => ({ ...prev, nicheGroup: nicheGroupInput.trim() }))
+                              setNicheGroupCreateMode(false)
+                              setNicheGroupInput("")
+                            }
+                            if (e.key === 'Escape') {
+                              setNicheGroupCreateMode(false)
+                              setNicheGroupInput("")
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => {
+                            if (nicheGroupInput.trim()) {
+                              setTempValues(prev => ({ ...prev, nicheGroup: nicheGroupInput.trim() }))
+                            }
+                            setNicheGroupCreateMode(false)
+                            setNicheGroupInput("")
+                          }}
+                          className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded-md"
+                        >
+                          Add
+                        </button>
+                        <button
+                          onClick={() => { setNicheGroupCreateMode(false); setNicheGroupInput("") }}
+                          className="px-2 py-1 text-xs border border-border rounded-md text-muted-foreground"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <select
+                        value={tempValues.nicheGroup}
+                        onChange={e => {
+                          if (e.target.value === '__create__') {
+                            setNicheGroupCreateMode(true)
+                          } else {
+                            setTempValues(prev => ({ ...prev, nicheGroup: e.target.value }))
+                          }
+                        }}
+                        className="w-full px-2 py-1 text-xs rounded-md bg-background border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="">-- None --</option>
+                        {nicheGroups.map(ng => (
+                          <option key={ng} value={ng}>{ng}</option>
+                        ))}
+                        <option value="__create__">+ Create New</option>
+                      </select>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Niche Group</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary w-fit">{selectedChannel.nicheGroup}</span>
+                  </div>
+                )}
               </div>
             )}
 
