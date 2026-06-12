@@ -140,7 +140,7 @@ export function Dashboard() {
   const dateDropdownRef = useRef<HTMLDivElement>(null)
   const settingsBarRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const [openField, setOpenField] = useState<"niche" | "category" | "format" | "producedBy" | "contentType" | "tracking" | null>(null)
+  const [openField, setOpenField] = useState<"niche" | "category" | "format" | "producedBy" | "nicheGroup" | "contentType" | "tracking" | null>(null)
   const [fieldSearch, setFieldSearch] = useState("")
 
   // Filter mode state — empty string = "All" (no filter)
@@ -149,6 +149,7 @@ export function Dashboard() {
     category: "",
     format: "",
     producedBy: "",
+    nicheGroup: "",
     contentType: "",
     tracking: "",
   })
@@ -280,6 +281,7 @@ export function Dashboard() {
         if (filterValues.category && channel?.category !== filterValues.category) return false
         if (filterValues.format && channel?.format !== filterValues.format) return false
         if (filterValues.producedBy && channel?.producedBy !== filterValues.producedBy) return false
+        if (filterValues.nicheGroup && channel?.nicheGroup !== filterValues.nicheGroup) return false
         if (filterValues.contentType && channel?.type !== filterValues.contentType) return false
         if (filterValues.tracking && channel?.tracking !== filterValues.tracking) return false
       }
@@ -501,13 +503,13 @@ export function Dashboard() {
   }
 
   // Edit mode: update temp value
-  const handleFieldChange = (field: "niche" | "category" | "format" | "producedBy" | "contentType" | "tracking", value: string) => {
+  const handleFieldChange = (field: "niche" | "category" | "format" | "producedBy" | "nicheGroup" | "contentType" | "tracking", value: string) => {
     setTempValues((p) => ({ ...p, [field]: value }))
     setOpenField(null)
   }
 
   // Filter mode: update filter value (empty = All)
-  const handleFilterChange = (field: "niche" | "category" | "format" | "producedBy" | "contentType" | "tracking", value: string) => {
+  const handleFilterChange = (field: "niche" | "category" | "format" | "producedBy" | "nicheGroup" | "contentType" | "tracking", value: string) => {
     setFilterValues((p) => ({ ...p, [field]: value }))
     setOpenField(null)
   }
@@ -794,6 +796,7 @@ export function Dashboard() {
                 { key: "category" as const, label: "Category", options: masterRules.categories as readonly string[] },
                 { key: "format" as const, label: "Format", options: masterRules.formats as readonly string[] },
                 { key: "producedBy" as const, label: "Produced By", options: masterRules.producedBy as readonly string[] },
+                { key: "nicheGroup" as const, label: "Niche Group", options: nicheGroups as readonly string[] },
                 { key: "contentType" as const, label: "Type", options: CONTENT_TYPES as readonly string[] },
                 { key: "tracking" as const, label: "Tracking", options: TRACKING_STATUSES as readonly string[] },
               ]).map(({ key, label, options }, idx, arr) => {
@@ -808,9 +811,10 @@ export function Dashboard() {
                   : key === "category" ? selectedChannel?.category
                     : key === "format" ? selectedChannel?.format
                       : key === "producedBy" ? selectedChannel?.producedBy
-                        : key === "contentType" ? (selectedChannel?.contentType || selectedChannel?.type)
-                          : key === "tracking" ? selectedChannel?.tracking
-                            : ""
+                        : key === "nicheGroup" ? selectedChannel?.nicheGroup
+                          : key === "contentType" ? (selectedChannel?.contentType || selectedChannel?.type)
+                            : key === "tracking" ? selectedChannel?.tracking
+                              : ""
 
                 const displayValue = isEditMode
                   ? editValue || "—"
@@ -872,7 +876,7 @@ export function Dashboard() {
                           </div>
                           <div className="max-h-60 overflow-y-auto py-1">
                             {/* "All" option — only for filter mode */}
-                            {!isEditMode && (key === "niche" || key === "category" || key === "format" || key === "producedBy" || key === "contentType" || key === "tracking") && (
+                            {!isEditMode && (key === "niche" || key === "category" || key === "format" || key === "producedBy" || key === "nicheGroup" || key === "contentType" || key === "tracking") && (
                               <button
                                 onClick={() => handleFilterChange(key, "")}
                                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${filterValue === "" ? "bg-purple-500/10" : "hover:bg-white/5"
@@ -927,6 +931,21 @@ export function Dashboard() {
                                     placeholder="Create New..."
                                     className="w-full text-xs bg-background border border-border rounded-md px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-purple-500"
                                   />
+                                  <button type="submit" className="text-[10px] font-medium bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700 transition-colors">Add</button>
+                                </form>
+                              </div>
+                            )}
+
+                            {isEditMode && key === "nicheGroup" && (
+                              <div className="px-2 py-2 mt-1 border-t border-border">
+                                <form onSubmit={(e) => {
+                                  e.preventDefault()
+                                  const form = e.target as HTMLFormElement
+                                  const input = form.elements.namedItem('ngVal') as HTMLInputElement
+                                  const val = input.value.trim()
+                                  if (val) { setTempValues(prev => ({ ...prev, nicheGroup: val })); setOpenField(null); input.value = "" }
+                                }} className="flex items-center gap-2">
+                                  <input name="ngVal" placeholder="Create New..." className="w-full text-xs bg-background border border-border rounded-md px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-purple-500" />
                                   <button type="submit" className="text-[10px] font-medium bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700 transition-colors">Add</button>
                                 </form>
                               </div>
