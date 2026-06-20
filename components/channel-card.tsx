@@ -1,5 +1,8 @@
 "use client"
 
+import { useState, useRef, useEffect } from "react"
+import { MoreVertical, Trash2 } from "lucide-react"
+
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import type { Channel } from "@/lib/constants"
@@ -8,22 +11,65 @@ interface ChannelCardProps {
   channel: Channel
   isActive: boolean
   onClick: () => void
+  onDeleteClick: () => void
 }
 
-export function ChannelCard({ channel, isActive, onClick }: ChannelCardProps) {
+export function ChannelCard({ channel, isActive, onClick, onDeleteClick }: ChannelCardProps) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    if (menuOpen) document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [menuOpen])
+
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick() }}
       className={cn(
-        "w-full text-left p-3 rounded-lg border transition-all duration-200",
+        "relative w-full text-left p-3 rounded-lg border transition-all duration-200 cursor-pointer",
         "hover:bg-sidebar-accent/50",
         isActive
           ? "border-l-4 border-l-primary bg-sidebar-accent border-sidebar-border"
           : "border-transparent"
       )}
     >
+      {/* Overflow menu */}
+      <div
+        ref={menuRef}
+        className="absolute top-2 right-2 z-10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={() => setMenuOpen((v) => !v)}
+          className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+          aria-label="Channel options"
+        >
+          <MoreVertical className="w-3.5 h-3.5" />
+        </button>
+        {menuOpen && (
+          <div className="absolute top-full right-0 mt-1 bg-popover border border-border rounded-lg shadow-2xl min-w-[140px] overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100">
+            <button
+              onClick={() => { setMenuOpen(false); onDeleteClick() }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete channel
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Row 1: Channel name */}
-      <p className="font-semibold text-sidebar-foreground truncate text-sm">
+      <p className="font-semibold text-sidebar-foreground truncate text-sm pr-6">
         {channel.handle}
       </p>
 
@@ -68,6 +114,6 @@ export function ChannelCard({ channel, isActive, onClick }: ChannelCardProps) {
       <p className="text-xs text-muted-foreground mt-1">
         Shared on {channel.sharedOn}
       </p>
-    </button>
+    </div>
   )
 }
