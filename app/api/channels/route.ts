@@ -22,6 +22,18 @@ function normalizeDate(raw: string): string {
     return (raw || '').split(' ')[0];
 }
 
+function formatRequestedAt(date: Date): string {
+    return date.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+    }).replace(',', ',');
+}
+
 async function ensurePendingDeletesTab(sheets: any, spreadsheetId: string | undefined) {
     const meta = await sheets.spreadsheets.get({ spreadsheetId });
     const exists = (meta.data.sheets || []).some(
@@ -198,7 +210,7 @@ export async function DELETE(request: Request) {
                     ytUrl.trim(),
                     handle || '',
                     requestedBy || 'unknown',
-                    new Date().toISOString(),
+                    formatRequestedAt(new Date()),
                     'PENDING',
                 ]],
             },
