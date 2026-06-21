@@ -123,6 +123,8 @@ export function Dashboard() {
   const [showHandleDiff, setShowHandleDiff] = useState(false)
   const [channelIsUnavailable, setChannelIsUnavailable] = useState(false)
   const [channelHasHandleDiff, setChannelHasHandleDiff] = useState(false)
+  const [channelPendingDelete, setChannelPendingDelete] = useState<Channel | null>(null)
+  const [deletingChannel, setDeletingChannel] = useState(false)
   const [handleDiffInfo, setHandleDiffInfo] = useState<{ previousHandle: string; currentHandle: string } | null>(null)
   const [handleDiffEdits, setHandleDiffEdits] = useState<{ previousHandle: string; currentHandle: string }>({ previousHandle: "", currentHandle: "" })
   const [resolvedHandle, setResolvedHandle] = useState("")
@@ -204,6 +206,40 @@ export function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ytUrl, addedBy: currentUser }),
       })
+    }
+  }
+
+  const handleDeleteChannel = async () => {
+    if (!channelPendingDelete) return
+    setDeletingChannel(true)
+    const deletedId = channelPendingDelete.id
+    const deletedYtUrl = channelPendingDelete.ytUrl
+    try {
+      await fetch('/api/channels', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ytUrl: deletedYtUrl,
+          handle: channelPendingDelete.handle,
+          requestedBy: currentUser || 'unknown',
+        }),
+      })
+      setChannelsState2(prev => prev.filter(c => c.id !== deletedId))
+      if (selectedChannelId === deletedId) {
+        const remaining = channelsState.filter(c => c.id !== deletedId)
+        if (remaining.length > 0) {
+          handleSelectChannel(remaining[0].id)
+        } else {
+          setSelectedChannelId("")
+        }
+      }
+      setFavouriteData(prev => prev.filter(f => f.ytUrl !== deletedYtUrl))
+      setFavourites(prev => prev.filter(url => url !== deletedYtUrl))
+    } catch (err) {
+      console.error('Failed to delete channel:', err)
+    } finally {
+      setDeletingChannel(false)
+      setChannelPendingDelete(null)
     }
   }
 
@@ -570,6 +606,7 @@ export function Dashboard() {
                 channel={channel}
                 isActive={channel.id === selectedChannelId}
                 onClick={() => handleSelectChannel(channel.id)}
+                onDeleteClick={() => setChannelPendingDelete(channel)}
               />
             ))}
             {filteredChannels.length === 0 && (
@@ -1411,6 +1448,34 @@ export function Dashboard() {
           </Button>
         </div>
       </div>
+
+      {channelPendingDelete && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100]">
+          <div className="bg-popover border border-border rounded-xl shadow-2xl w-[360px] p-5">
+            <h3 className="text-base font-bold text-foreground mb-1">Delete channel?</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              This will remove <span className="font-semibold text-foreground">{channelPendingDelete.handle}</span> from your sheet and queue it for Discord cleanup. This can&apos;t be undone from here.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setChannelPendingDelete(null)}
+                disabled={deletingChannel}
+                className="h-8 px-3 text-xs rounded-lg border border-border text-foreground hover:bg-white/5 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteChannel}
+                disabled={deletingChannel}
+                className="h-8 px-3 text-xs rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium transition-colors disabled:opacity-50"
+              >
+                {deletingChannel ? "Deleting…" : "Delete channel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <UserSelectModal onSelect={(user) => setCurrentUser(user)} />
     </div >
   )
