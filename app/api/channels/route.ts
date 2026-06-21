@@ -22,6 +22,32 @@ function normalizeDate(raw: string): string {
     return (raw || '').split(' ')[0];
 }
 
+async function ensurePendingDeletesTab(sheets: any, spreadsheetId: string | undefined) {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    const exists = (meta.data.sheets || []).some(
+        (s: any) => s.properties?.title === 'Pending Deletes'
+    );
+    if (exists) return;
+
+    await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+            requests: [
+                { addSheet: { properties: { title: 'Pending Deletes' } } },
+            ],
+        },
+    });
+
+    await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: 'Pending Deletes!A1:E1',
+        valueInputOption: 'RAW',
+        requestBody: {
+            values: [['YT URL', 'Handle', 'Requested By', 'Requested At', 'Status']],
+        },
+    });
+}
+
 export async function GET() {
     try {
         const auth = getAuthClient();
@@ -116,6 +142,97 @@ export async function PATCH(request: Request) {
                 ],
             },
         });
+
+        return NextResponse.json({ success: true });
+    } catch (err: any) {
+        return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    }
+}
+
+export async function DELETE(request: Request) {
+    try {
+        const body = await request.json();
+        const { ytUrl, handle, requestedBy } = body;
+
+        if (!ytUrl) {
+            return NextResponse.json({ success: false, error: 'ytUrl is required' }, { status: 400 });
+        }
+
+        const auth = getAuthClient();
+        const sheets = google.sheets({ version: 'v4', auth });
+        const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+
+        const meta = await sheets.spreadsheets.get({ spreadsheetId });
+        const manualSheetMeta = (meta.data.sheets || []).find(
+            (s: any) => s.properties?.title === 'Manual Sheet'
+        );
+        const manualSheetId = manualSheetMeta?.properties?.sheetId;
+
+        if (manualSheetId === undefined) {
+            return NextResponse.json({ success: false, error: 'Manual Sheet not found' }, { status: 500 });
+        }
+
+        const lookup = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: 'Manual Sheet!A2:A',
+        });
+
+        const rows = lookup.data.values || [];
+        const rowIndex = rows.findIndex((r) => (r[0] || '').trim() === ytUrl.trim());
+
+        if (rowIndex === -1) {
+            return NextResponse.json({ success: false, error: 'Channel not found' }, { status: 404 });
+        }
+
+        const sheetRowZeroIndexed = rowIndex + 1;
+
+        await ensurePendingDeletesTab(sheets, spreadsheetId);
+
+        await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: 'Pending Deletes!A:E',
+            valueInputOption: 'RAW',
+            insertDataOption: 'INSERT_ROWS',
+            requestBody: {
+                values: [[
+                    ytUrl.trim(),
+                    handle || '',
+                    requestedBy || 'unknown',
+                    new Date().toISOString(),
+                    'PENDING',
+                ]],
+            },
+        });
+
+        await sheets.spreadsheets.batchUpdate({
+            spreadsheetId,
+            requestBody: {
+                requests: [
+                    {
+                        deleteDimension: {
+                            range: {
+                                sheetId: manualSheetId,
+                                dimension: 'ROWS',
+                                startIndex: sheetRowZeroIndexed,
+                                endIndex: sheetRowZeroIndexed + 1,
+                            },
+                        },
+                    },
+                ],
+            },
+        });
+
+        if (process.env.N8N_DISCORD_CLEANUP_WEBHOOK_URL) {
+            fetch(process.env.N8N_DISCORD_CLEANUP_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ytUrl: ytUrl.trim(),
+                    handle: handle || '',
+                    requestedBy: requestedBy || 'unknown',
+                }),
+            }).catch((err) => console.error('n8n webhook call failed:', err));
+        }
 
         return NextResponse.json({ success: true });
     } catch (err: any) {
