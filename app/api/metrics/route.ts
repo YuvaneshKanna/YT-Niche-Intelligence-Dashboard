@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { aggregate } from "@/lib/metrics/aggregate"
-import { MetricsConfigError, readChannelSnapshots, readVideoSnapshots } from "@/lib/metrics/sheets"
+import {
+  MetricsConfigError,
+  diagnose,
+  readChannelSnapshots,
+  readVideoSnapshots,
+} from "@/lib/metrics/sheets"
 import { RANGE_DAYS, type MetricsPayload, type RangeKey } from "@/lib/metrics/types"
 
 // Stage 2 refreshes twice a day (9AM / 3PM IST) plus hourly top-ups for new
@@ -26,6 +31,7 @@ export async function GET(request: NextRequest) {
   const rangeParam = searchParams.get("range")
   const range: RangeKey = isRangeKey(rangeParam) ? rangeParam : "30d"
   const force = searchParams.get("refresh") === "1"
+  const debug = searchParams.get("debug") === "1"
 
   const cached = cache.get(range)
   if (!force && cached && cached.expiresAt > Date.now()) {
@@ -38,6 +44,21 @@ export async function GET(request: NextRequest) {
   const since = new Date(Date.now() - (days + 1) * 86400000).toISOString().slice(0, 10)
 
   try {
+    // ?debug=1 reports what the tabs actually contain — headers found, raw
+    // date values and how they parse — so an empty result can be diagnosed
+    // without guessing. Reveals schema shape only, never row contents.
+    if (debug) {
+      return NextResponse.json({
+        success: true,
+        debug: {
+          sinceDate: since,
+          requestedDays: days,
+          serverToday: new Date().toISOString().slice(0, 10),
+          tabs: await diagnose(since),
+        },
+      })
+    }
+
     const [channelSnapshots, videoSnapshots] = await Promise.all([
       readChannelSnapshots(since),
       readVideoSnapshots(since),
