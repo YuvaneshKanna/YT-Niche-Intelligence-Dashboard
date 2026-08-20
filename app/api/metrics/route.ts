@@ -77,7 +77,11 @@ export async function GET(request: NextRequest) {
     if (result.coverageDays === 0) {
       try {
         for (const t of await diagnose(since)) {
-          const parts: string[] = [`${t.tab}: ${t.totalRows} data row(s)`]
+          const parts: string[] = [
+            `${t.tab}: ${t.totalRows} data row(s), headers on row ${
+              t.headerRowNumber === -1 ? "NOT FOUND" : t.headerRowNumber
+            }`,
+          ]
 
           if (t.totalRows === 0) {
             parts.push("tab is empty — check GOOGLE_METRICS_SHEET_ID points at the YT Channel Metrics spreadsheet")

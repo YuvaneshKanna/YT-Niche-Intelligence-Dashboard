@@ -132,15 +132,59 @@ async function readTab(tab: string, range: string): Promise<unknown[][]> {
   return (res.data.values || []) as unknown[][]
 }
 
+/** How far down to hunt for the header row before giving up. */
+const HEADER_SEARCH_LIMIT = 12
+
+/**
+ * Locates the real header row.
+ *
+ * These tabs are human-readable documents, not raw exports: row 1 is a title
+ * banner ("Sheet 4 — Daily Channel Snapshot"), row 2 a behaviour note, row 3
+ * section labels ("Primary Key", "Identity", "Metrics"), row 4 the actual
+ * headers, and rows 5-6 a type row ("Text", "Date", "Integer") and a
+ * description row. Assuming row 1 made every column lookup return undefined
+ * and silently produced an empty page.
+ *
+ * Rather than hard-coding row 4, score each candidate row by how many of the
+ * required headers it contains and take the best — so inserting or removing a
+ * banner row later cannot break this again.
+ */
+export function findHeaderRow(rows: unknown[][], required: string[]): number {
+  const wanted = new Set(required.map(canon))
+  let bestIdx = -1
+  let bestScore = 0
+
+  const limit = Math.min(rows.length, HEADER_SEARCH_LIMIT)
+  for (let i = 0; i < limit; i++) {
+    const names = new Set((rows[i] || []).map((c) => canon(str(c))).filter(Boolean))
+    let score = 0
+    for (const w of wanted) if (names.has(w)) score++
+    if (score > bestScore) {
+      bestScore = score
+      bestIdx = i
+    }
+  }
+
+  return bestScore === 0 ? -1 : bestIdx
+}
+
+/** Header names that must be present for each tab to be usable. */
+const CHANNEL_REQUIRED = ["Snapshot_Date", "Handle", "Total_Views", "Subscribers"]
+const VIDEO_REQUIRED = ["Snapshot_Date", "Video_ID", "Views", "Video_Type"]
+
 export async function readChannelSnapshots(sinceDate: string): Promise<ChannelSnapshot[]> {
   const rows = await readTab(CHANNEL_TAB, "A1:N")
-  if (rows.length < 2) return []
+  const headerRow = findHeaderRow(rows, CHANNEL_REQUIRED)
+  if (headerRow === -1) return []
 
-  const h = headerIndex(rows[0])
+  const h = headerIndex(rows[headerRow])
   const at = (row: unknown[], name: string) => cell(row, h, name)
 
+  // Rows immediately below the header are a type row and a description row.
+  // They are skipped implicitly: neither carries a parseable Snapshot_Date,
+  // and every row without one is dropped below.
   const out: ChannelSnapshot[] = []
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = headerRow + 1; i < rows.length; i++) {
     const row = rows[i]
     const snapshotDate = normaliseDate(at(row, "Snapshot_Date"))
     if (!snapshotDate || snapshotDate < sinceDate) continue
@@ -175,13 +219,14 @@ const asRecordType = (raw: string): RecordType =>
 
 export async function readVideoSnapshots(sinceDate: string): Promise<VideoSnapshot[]> {
   const rows = await readTab(VIDEO_TAB, "A1:W")
-  if (rows.length < 2) return []
+  const headerRow = findHeaderRow(rows, VIDEO_REQUIRED)
+  if (headerRow === -1) return []
 
-  const h = headerIndex(rows[0])
+  const h = headerIndex(rows[headerRow])
   const at = (row: unknown[], name: string) => cell(row, h, name)
 
   const out: VideoSnapshot[] = []
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = headerRow + 1; i < rows.length; i++) {
     const row = rows[i]
     const snapshotDate = normaliseDate(at(row, "Snapshot_Date"))
     if (!snapshotDate || snapshotDate < sinceDate) continue
@@ -221,6 +266,8 @@ export async function readVideoSnapshots(sinceDate: string): Promise<VideoSnapsh
 /** What a tab actually contains, for diagnosing an empty result. */
 export interface TabDiagnostics {
   tab: string
+  /** 1-based row number where the headers were found, or -1 if not found. */
+  headerRowNumber: number
   totalRows: number
   detectedHeaders: string[]
   /** Headers the readers require that were NOT found. */
@@ -242,6 +289,7 @@ async function diagnoseTab(
   if (rows.length === 0) {
     return {
       tab,
+      headerRowNumber: -1,
       totalRows: 0,
       detectedHeaders: [],
       missingHeaders: required,
@@ -251,18 +299,21 @@ async function diagnoseTab(
     }
   }
 
-  const detectedHeaders = rows[0].map((c) => str(c)).filter(Boolean)
-  const h = headerIndex(rows[0])
+  const headerRow = findHeaderRow(rows, required)
+  const headerIdx = headerRow === -1 ? 0 : headerRow
+
+  const detectedHeaders = (rows[headerIdx] || []).map((c) => str(c)).filter(Boolean)
+  const h = headerIndex(rows[headerIdx])
   const missingHeaders = required.filter((r) => h[canon(r)] === undefined)
 
-  const rawDateSamples = rows.slice(1, 4).map((row) => {
+  const rawDateSamples = rows.slice(headerIdx + 1, headerIdx + 5).map((row) => {
     const raw = cell(row, h, "Snapshot_Date")
     return { raw, type: typeof raw, parsed: normaliseDate(raw) }
   })
 
   const parsed = new Set<string>()
   let rowsInWindow = 0
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = headerIdx + 1; i < rows.length; i++) {
     const d = normaliseDate(cell(rows[i], h, "Snapshot_Date"))
     if (d) {
       parsed.add(d)
@@ -272,7 +323,8 @@ async function diagnoseTab(
 
   return {
     tab,
-    totalRows: Math.max(0, rows.length - 1),
+    headerRowNumber: headerRow === -1 ? -1 : headerRow + 1,
+    totalRows: Math.max(0, rows.length - headerIdx - 1),
     detectedHeaders,
     missingHeaders,
     rawDateSamples,
