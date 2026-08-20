@@ -94,6 +94,68 @@ export function normaliseDate(raw: unknown): string {
 }
 
 /**
+ * Duration cells are durations, not text. `UNFORMATTED_VALUE` returns them as
+ * a fraction of a day (0.006493… == 9m21s), which rendered raw in the table.
+ * A value that is already "H:MM:SS" is passed through untouched.
+ */
+export function normaliseDuration(raw: unknown): string {
+  if (raw === null || raw === undefined || raw === "") return ""
+
+  const s = str(raw)
+  if (/^\d+:\d{2}(:\d{2})?$/.test(s)) return s
+
+  const asNumber = typeof raw === "number" ? raw : Number(s)
+  if (!Number.isFinite(asNumber) || asNumber < 0) return s
+
+  const total = Math.round(asNumber * 86_400)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = total % 60
+  return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+}
+
+// The two scoring vocabularies are disjoint, which makes them self-identifying.
+const AGE_TAGS = new Set(["FRESH", "SUSTAINED", "LONG_TAIL", "EVERGREEN"])
+const REASONS = new Set([
+  "BREAKOUT",
+  "FAST_MOVER",
+  "HIGH_ENGAGEMENT",
+  "VIRAL",
+  "EARLY_SIGNAL",
+  "NORMAL",
+])
+
+/**
+ * Returns {reason, ageTag} correctly assigned regardless of column order.
+ *
+ * The Stage 2 `Write - All_Video_Snapshots` node has its mappings crossed —
+ * `Outlier_Reason` receives `outlier_age_tag` and vice versa — so the sheet's
+ * Outlier_Reason column holds FRESH/EVERGREEN/… and Outlier_Age_Tag holds
+ * VIRAL/BREAKOUT/…. (`Write Sheet1_Outlier_Videos` maps them correctly.)
+ *
+ * Rather than depend on that being fixed upstream, classify by value: the
+ * vocabularies do not overlap, so whichever column holds an age tag IS the
+ * age tag. This reads existing rows correctly today and keeps reading them
+ * correctly once the workflow is repaired.
+ */
+export function resolveOutlierLabels(
+  reasonCell: unknown,
+  ageCell: unknown
+): { reason: string; ageTag: string } {
+  const a = str(reasonCell).toUpperCase()
+  const b = str(ageCell).toUpperCase()
+
+  if (AGE_TAGS.has(a) && REASONS.has(b)) return { reason: b, ageTag: a }
+  if (REASONS.has(a) && AGE_TAGS.has(b)) return { reason: a, ageTag: b }
+
+  // Only one side recognisable — trust the one we can classify.
+  if (AGE_TAGS.has(a)) return { reason: b, ageTag: a }
+  if (AGE_TAGS.has(b)) return { reason: a, ageTag: b }
+
+  return { reason: a, ageTag: b }
+}
+
+/**
  * Canonical form of a header name: lowercase, no spaces/underscores/hyphens.
  * "Snapshot_Date", "Snapshot Date" and "snapshotdate" all collapse to the
  * same key, so a cosmetic rename in the sheet cannot silently zero out the
@@ -234,6 +296,8 @@ export async function readVideoSnapshots(sinceDate: string): Promise<VideoSnapsh
     const videoId = str(at(row, "Video_ID"))
     if (!videoId) continue
 
+    const labels = resolveOutlierLabels(at(row, "Outlier_Reason"), at(row, "Outlier_Age_Tag"))
+
     out.push({
       rowKey: str(at(row, "Row_Key")),
       snapshotDate,
@@ -244,15 +308,15 @@ export async function readVideoSnapshots(sinceDate: string): Promise<VideoSnapsh
       videoUrl: str(at(row, "Video_URL")),
       title: str(at(row, "Title")),
       publishedAt: normaliseDate(at(row, "Published_At")),
-      durationHms: str(at(row, "Duration_HMS")),
+      durationHms: normaliseDuration(at(row, "Duration_HMS")),
       thumbnailUrl: str(at(row, "Thumbnail_URL")),
       videoType: asVideoType(str(at(row, "Video_Type"))),
       views: num(at(row, "Views")),
       likes: num(at(row, "Likes")),
       comments: num(at(row, "Comments")),
       outlierScore: num(at(row, "Outlier_Score")),
-      outlierReason: str(at(row, "Outlier_Reason")),
-      outlierAgeTag: str(at(row, "Outlier_Age_Tag")),
+      outlierReason: labels.reason,
+      outlierAgeTag: labels.ageTag,
       producedBy: str(at(row, "Produced_By")),
       niche: str(at(row, "Niche")),
       category: str(at(row, "Category")),
