@@ -104,21 +104,21 @@ export function NicheMetrics() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
               <Youtube className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="text-lg font-bold text-foreground">YT Niche Overview</span>
           </div>
+          {/* The nav carries both page names, so the wordmark is not repeated here. */}
           <nav className="flex items-center gap-1">
             <Link
               href="/"
               className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             >
-              Channels
+              YT Niche Overview
             </Link>
             <Link
               href="/metrics"
               aria-current="page"
               className="rounded-lg bg-muted/60 px-3 py-1.5 text-sm font-medium text-foreground"
             >
-              Niche Metrics
+              Niche Breakdown
             </Link>
           </nav>
         </div>

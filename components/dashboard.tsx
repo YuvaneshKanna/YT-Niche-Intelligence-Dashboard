@@ -574,23 +574,30 @@ export function Dashboard() {
       {/* ── LEFT SIDEBAR ── */}
       <aside className="w-[320px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden">
         {/* Logo */}
-        <div className="flex-shrink-0 h-14 flex items-center justify-between gap-2 px-5 border-b border-sidebar-border">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-              <Youtube className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <h1 className="text-lg font-bold text-sidebar-foreground truncate">
-              YT Niche Overview
-            </h1>
+        {/*
+          Both page names live in the tab row so the 320px sidebar can show
+          them without truncating. A bold wordmark plus a full-length link
+          does not fit at this width — measured, not assumed.
+        */}
+        <div className="flex-shrink-0 h-14 flex items-center gap-1.5 px-3 border-b border-sidebar-border">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+            <Youtube className="w-5 h-5 text-primary-foreground" />
           </div>
-          <Link
-            href="/metrics"
-            title="Niche metrics"
-            className="flex-shrink-0 flex items-center gap-1 rounded-lg border border-sidebar-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            Metrics
-          </Link>
+          <nav className="flex items-center gap-1 min-w-0">
+            <span
+              aria-current="page"
+              className="flex-shrink-0 rounded-lg bg-sidebar-accent px-2 py-1.5 text-[11px] font-semibold text-sidebar-foreground"
+            >
+              YT Niche Overview
+            </span>
+            <Link
+              href="/metrics"
+              className="flex-shrink-0 flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+            >
+              <BarChart3 className="w-3.5 h-3.5 flex-shrink-0" />
+              Niche Breakdown
+            </Link>
+          </nav>
         </div>
 
         {/* Search */}

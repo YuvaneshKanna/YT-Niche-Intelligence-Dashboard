@@ -1,4 +1,4 @@
-// Shared types for the Niche Metrics page (Stage 2 data).
+// Shared types for the Niche Breakdown page (Stage 2 data).
 //
 // Column names mirror the n8n Stage 2 writers exactly — see
 // `Sheet4_Daily_Channel_Snapshot` and `All_Video_Snapshots` in the
