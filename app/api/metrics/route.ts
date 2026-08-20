@@ -70,6 +70,44 @@ export async function GET(request: NextRequest) {
       requestedDays: days,
     })
 
+    // An empty result is the hardest failure to diagnose from the UI, because
+    // a misparsed date, a renamed header and a genuinely empty tab all look
+    // identical. When nothing came back, attach what the tabs actually
+    // contain so the page explains itself instead of just saying "no rows".
+    if (result.coverageDays === 0) {
+      try {
+        for (const t of await diagnose(since)) {
+          const parts: string[] = [`${t.tab}: ${t.totalRows} data row(s)`]
+
+          if (t.totalRows === 0) {
+            parts.push("tab is empty — check GOOGLE_METRICS_SHEET_ID points at the YT Channel Metrics spreadsheet")
+          }
+          if (t.missingHeaders.length > 0) {
+            parts.push(`MISSING HEADERS: ${t.missingHeaders.join(", ")}`)
+            parts.push(`headers seen: ${t.detectedHeaders.slice(0, 8).join(" | ") || "(none)"}`)
+          }
+          if (t.rawDateSamples.length > 0) {
+            const sample = t.rawDateSamples[0]
+            parts.push(
+              `first Snapshot_Date: raw=${JSON.stringify(sample.raw)} (${sample.type}) -> parsed=${
+                sample.parsed || "PARSE FAILED"
+              }`
+            )
+          }
+          if (t.parsedDatesFound.length > 0) {
+            parts.push(`newest dates in tab: ${t.parsedDatesFound.slice(0, 3).join(", ")}`)
+          }
+          parts.push(`rows on/after ${since}: ${t.rowsInWindow}`)
+
+          result.warnings.push(parts.join(" · "))
+        }
+      } catch (diagErr) {
+        result.warnings.push(
+          `Diagnostics unavailable: ${diagErr instanceof Error ? diagErr.message : "unknown error"}`
+        )
+      }
+    }
+
     const payload: MetricsPayload = {
       range,
       requestedDays: days,

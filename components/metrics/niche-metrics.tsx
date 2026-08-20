@@ -353,9 +353,13 @@ function StatusStrip({
   onToggle: () => void
 }) {
   const short = data.coverageDays < data.requestedDays
+  // With no data at all the caveats ARE the content, so show them unfolded —
+  // the user should not have to hunt for why the page is blank.
+  const isEmpty = data.coverageDays === 0
+  const open = expanded || isEmpty
 
   return (
-    <div className="flex-shrink-0">
+    <div className={isEmpty ? "flex min-h-0 flex-1 flex-col" : "flex-shrink-0"}>
       <div className="flex h-[26px] items-center gap-4 text-[11px] text-muted-foreground">
         <span>
           Coverage:{" "}
@@ -387,10 +391,17 @@ function StatusStrip({
         )}
       </div>
 
-      {expanded && data.warnings.length > 0 && (
-        <div className="mt-1 space-y-1 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2">
+      {open && data.warnings.length > 0 && (
+        <div
+          className={`mt-1 space-y-2 overflow-y-auto rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 ${
+            isEmpty ? "min-h-0 flex-1" : ""
+          }`}
+        >
           {data.warnings.map((w, i) => (
-            <p key={i} className="text-[11px] leading-relaxed text-amber-200/90">
+            <p
+              key={i}
+              className="break-words font-mono text-[11px] leading-relaxed text-amber-200/90"
+            >
               {w}
             </p>
           ))}
