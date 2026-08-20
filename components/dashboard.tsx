@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useMemo, useRef, useEffect } from "react"
-import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star } from "lucide-react"
+import Link from "next/link"
+import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, BarChart3 } from "lucide-react"
 import * as XLSX from "xlsx"
 import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
@@ -573,15 +574,23 @@ export function Dashboard() {
       {/* ── LEFT SIDEBAR ── */}
       <aside className="w-[320px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden">
         {/* Logo */}
-        <div className="flex-shrink-0 h-14 flex items-center px-5 border-b border-sidebar-border">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+        <div className="flex-shrink-0 h-14 flex items-center justify-between gap-2 px-5 border-b border-sidebar-border">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
               <Youtube className="w-5 h-5 text-primary-foreground" />
             </div>
-            <h1 className="text-lg font-bold text-sidebar-foreground">
+            <h1 className="text-lg font-bold text-sidebar-foreground truncate">
               YT Niche Overview
             </h1>
           </div>
+          <Link
+            href="/metrics"
+            title="Niche metrics"
+            className="flex-shrink-0 flex items-center gap-1 rounded-lg border border-sidebar-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            Metrics
+          </Link>
         </div>
 
         {/* Search */}
