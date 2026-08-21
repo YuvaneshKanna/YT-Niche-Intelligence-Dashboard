@@ -1,7 +1,17 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, ArrowLeft, ChevronRight, FileText, RefreshCw, Settings, Sparkles, Youtube } from "lucide-react"
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  RefreshCw,
+  Settings,
+  Sparkles,
+  Youtube,
+} from "lucide-react"
 import type {
   ChannelRollup,
   MetricsPayload,
@@ -11,14 +21,47 @@ import type {
 } from "@/lib/metrics/types"
 import { ScoreCard } from "./score-card"
 import { OutlierTable } from "./outlier-table"
-import { SERIES, TrendLegend, ViewsTrend, type TrendMode } from "./views-trend"
+import {
+  buildCompareRows,
+  colorForEntity,
+  COMPARE_MAX_SERIES,
+  CompareLegend,
+  CompareTrend,
+  SERIES,
+  TrendLegend,
+  ViewsTrend,
+  type TrendMode,
+} from "./views-trend"
 import { InsightsDrawer } from "./insights-drawer"
 import { ChatPanel } from "./chat-panel"
 import { SettingsModal } from "@/components/settings-modal"
 import { PageNav } from "@/components/page-nav"
 
-const RANGES: RangeKey[] = ["7d", "14d", "30d"]
-const RANGE_LABEL: Record<RangeKey, string> = { "7d": "7 days", "14d": "14 days", "30d": "30 days" }
+const RANGES: RangeKey[] = ["7d", "14d", "30d", "90d", "180d"]
+const RANGE_LABEL: Record<RangeKey, string> = {
+  "7d": "7d",
+  "14d": "14d",
+  "30d": "30d",
+  "90d": "90d",
+  "180d": "6mo",
+}
+
+/**
+ * Picks up to `cap` entities by delta, always keeping `mustIncludeKey` (the
+ * one focused elsewhere on the page) even if it would otherwise fall outside
+ * the top-N — so the highlighted line never disappears from its own chart.
+ */
+function topEntities<T extends { key: string; delta: number }>(
+  all: T[],
+  mustIncludeKey: string | null,
+  cap: number
+): T[] {
+  const sorted = [...all].sort((a, b) => b.delta - a.delta)
+  const must = mustIncludeKey ? sorted.find((e) => e.key === mustIncludeKey) : undefined
+  if (!must) return sorted.slice(0, cap)
+  const rest = sorted.filter((e) => e.key !== mustIncludeKey).slice(0, cap - 1)
+  return [must, ...rest].sort((a, b) => b.delta - a.delta)
+}
 
 const fmt = (n: number): string => {
   const abs = Math.abs(n)
@@ -43,6 +86,10 @@ export function NicheMetrics() {
 
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null)
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
+  // What the trend chart compares when no single channel is drilled into:
+  // "groups" overlays every niche group, "channels" overlays the channels
+  // inside the selected group. Selecting a channel always wins over either.
+  const [chartScope, setChartScope] = useState<"groups" | "channels">("groups")
   const [trendMode, setTrendMode] = useState<TrendMode>("split")
   const [videoType, setVideoType] = useState<VideoType>("LONG_FORM")
   const [showWarnings, setShowWarnings] = useState(false)
@@ -100,6 +147,68 @@ export function NicheMetrics() {
     const handles = new Set(channel ? [channel.handle] : groupChannels.map((c) => c.handle))
     return data.videos.filter((v) => handles.has(v.handle))
   }, [data, group, channel, groupChannels])
+
+  // ── Niche-group-vs-niche-group comparison (chartScope "groups") ──
+  const allGroupKeysSorted = useMemo(
+    () => (data ? [...data.groups.map((g) => g.nicheGroup)].sort() : []),
+    [data]
+  )
+  const groupCompareSelection = useMemo(() => {
+    if (!data) return []
+    return topEntities(
+      data.groups.map((g) => ({ key: g.nicheGroup, delta: g.totalViewsDelta, trend: g.trend })),
+      selectedGroup,
+      COMPARE_MAX_SERIES
+    )
+  }, [data, selectedGroup])
+  const groupCompareEntries = useMemo(
+    () =>
+      groupCompareSelection.map((e) => ({
+        key: e.key,
+        label: e.key,
+        color: colorForEntity(allGroupKeysSorted, e.key),
+      })),
+    [groupCompareSelection, allGroupKeysSorted]
+  )
+  const groupCompareRows = useMemo(() => buildCompareRows(groupCompareSelection), [groupCompareSelection])
+  const groupsOmitted = (data?.groups.length ?? 0) - groupCompareSelection.length
+
+  // ── Channel-vs-channel comparison within the selected group (chartScope "channels") ──
+  const allChannelKeysSorted = useMemo(
+    () => [...groupChannels.map((c) => c.handle)].sort(),
+    [groupChannels]
+  )
+  const channelCompareSelection = useMemo(
+    () =>
+      topEntities(
+        groupChannels.map((c) => ({ key: c.handle, delta: c.totalViewsDelta, trend: c.trend })),
+        selectedChannel,
+        COMPARE_MAX_SERIES
+      ),
+    [groupChannels, selectedChannel]
+  )
+  const channelCompareEntries = useMemo(
+    () =>
+      channelCompareSelection.map((e) => ({
+        key: e.key,
+        label: e.key,
+        color: colorForEntity(allChannelKeysSorted, e.key),
+      })),
+    [channelCompareSelection, allChannelKeysSorted]
+  )
+  const channelCompareRows = useMemo(
+    () => buildCompareRows(channelCompareSelection),
+    [channelCompareSelection]
+  )
+  const channelsOmitted = groupChannels.length - channelCompareSelection.length
+
+  // ── Ranked video list for the drilled-into channel (deepest level) ──
+  const channelVideosRanked = useMemo(() => {
+    if (!data || !channel) return []
+    return data.videos
+      .filter((v) => v.handle === channel.handle && v.videoType === videoType)
+      .sort((a, b) => b.views - a.views)
+  }, [data, channel, videoType])
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
@@ -234,53 +343,106 @@ export function NicheMetrics() {
               </section>
 
               {/* ── 3. Trend + drill-down · 296px ── */}
+              {/*
+                Three levels live in this one block, breadcrumb-driven:
+                all niche groups compared -> channels within one group
+                compared -> a single channel's own trend + its videos ranked
+                high to low. Compare charts are always total views — N
+                entities x 2 formats each would be unreadable; the by-format
+                split only applies once you're down to one channel.
+              */}
               <section className="flex h-[296px] flex-shrink-0 gap-3">
                 <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-border bg-card p-3">
                   <div className="mb-1 flex flex-shrink-0 items-center justify-between gap-3">
-                    <Breadcrumb
-                      group={group.nicheGroup}
-                      channel={channel?.handle ?? null}
-                      onReset={() => setSelectedChannel(null)}
-                    />
-                    <div className="flex items-center gap-3">
-                      <TrendLegend mode={trendMode} />
-                      <div className="flex rounded-lg border border-border p-0.5">
-                        {(["split", "total"] as TrendMode[]).map((m) => (
-                          <button
-                            key={m}
-                            onClick={() => setTrendMode(m)}
-                            className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
-                              trendMode === m
-                                ? "bg-primary text-primary-foreground"
-                                : "text-muted-foreground hover:text-foreground"
-                            }`}
-                          >
-                            {m === "split" ? "By format" : "All formats"}
-                          </button>
-                        ))}
-                      </div>
+                    <div className="min-w-0">
+                      <Breadcrumb
+                        group={group.nicheGroup}
+                        channel={channel?.handle ?? null}
+                        scope={chartScope}
+                        onShowGroups={() => {
+                          setChartScope("groups")
+                          setSelectedChannel(null)
+                        }}
+                        onShowChannels={() => {
+                          setChartScope("channels")
+                          setSelectedChannel(null)
+                        }}
+                      />
+                      {!channel && chartScope === "groups" && groupsOmitted > 0 && (
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          +{groupsOmitted} more not shown, sorted by views gained
+                        </p>
+                      )}
+                      {!channel && chartScope === "channels" && channelsOmitted > 0 && (
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          +{channelsOmitted} more not shown, sorted by views gained
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-shrink-0 items-center gap-3">
+                      {channel ? (
+                        <>
+                          <TrendLegend mode={trendMode} />
+                          <div className="flex rounded-lg border border-border p-0.5">
+                            {(["split", "total"] as TrendMode[]).map((m) => (
+                              <button
+                                key={m}
+                                onClick={() => setTrendMode(m)}
+                                className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
+                                  trendMode === m
+                                    ? "bg-primary text-primary-foreground"
+                                    : "text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                {m === "split" ? "By format" : "All formats"}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <CompareLegend
+                          entries={chartScope === "groups" ? groupCompareEntries : channelCompareEntries}
+                          focusKey={chartScope === "groups" ? selectedGroup : selectedChannel}
+                        />
+                      )}
                     </div>
                   </div>
 
                   <div className="min-h-0 flex-1">
                     {channel ? (
-                      <ChannelDetail channel={channel} />
+                      <ViewsTrend data={channel.trend} mode={trendMode} height="100%" />
+                    ) : chartScope === "groups" ? (
+                      <CompareTrend
+                        data={groupCompareRows}
+                        entries={groupCompareEntries}
+                        focusKey={selectedGroup}
+                        height="100%"
+                      />
                     ) : (
-                      <ViewsTrend data={group.trend} mode={trendMode} height="100%" />
+                      <CompareTrend
+                        data={channelCompareRows}
+                        entries={channelCompareEntries}
+                        focusKey={selectedChannel}
+                        height="100%"
+                      />
                     )}
                   </div>
                 </div>
 
-                {/* Drill-down: channels in the selected group */}
+                {/* Drill-down list — niche groups, or channels in the selected group, or that channel's videos */}
                 <div className="flex w-[340px] flex-shrink-0 flex-col rounded-xl border border-border bg-card">
                   <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                      Channels ({groupChannels.length})
+                    <p className="truncate text-[10px] uppercase tracking-widest text-muted-foreground">
+                      {channel
+                        ? `Videos (${channelVideosRanked.length}) · ${SERIES[videoType].label}`
+                        : chartScope === "groups"
+                          ? `Niche groups (${data.groups.length})`
+                          : `Channels (${groupChannels.length})`}
                     </p>
                     {channel && (
                       <button
                         onClick={() => setSelectedChannel(null)}
-                        className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+                        className="flex flex-shrink-0 items-center gap-1 text-[11px] text-primary hover:underline"
                       >
                         <ArrowLeft className="h-3 w-3" />
                         Back
@@ -288,36 +450,105 @@ export function NicheMetrics() {
                     )}
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-                    {groupChannels.map((c) => (
-                      <button
-                        key={c.handle}
-                        onClick={() => setSelectedChannel(c.handle)}
-                        aria-pressed={c.handle === selectedChannel}
-                        className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
-                          c.handle === selectedChannel ? "bg-primary/15" : "hover:bg-muted/40"
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-[11px] font-medium text-foreground">
-                            {c.handle}
-                          </p>
-                          <p className="truncate text-[10px] text-muted-foreground">
-                            {c.niche || "—"} · {fmt(c.subscribers)} subs
-                          </p>
-                        </div>
-                        <div className="flex flex-shrink-0 items-center gap-1.5">
-                          <div className="text-right">
-                            <p className="text-[11px] tabular-nums text-foreground">
-                              {fmt(c.totalViewsDelta)}
+                    {channel ? (
+                      channelVideosRanked.length === 0 ? (
+                        <p className="p-3 text-center text-[11px] text-muted-foreground">
+                          No {SERIES[videoType].label.toLowerCase()} videos in this range
+                        </p>
+                      ) : (
+                        channelVideosRanked.map((v, i) => (
+                          <a
+                            key={v.videoId}
+                            href={v.videoUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-muted/40"
+                          >
+                            <span className="w-4 flex-shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                              {i + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[11px] font-medium text-foreground">
+                                {v.title}
+                              </p>
+                              <p className="truncate text-[10px] text-muted-foreground">
+                                {fmt(v.views)} views
+                                {v.viewsPerDay !== null ? ` · ${fmt(v.viewsPerDay)}/d` : ""}
+                              </p>
+                            </div>
+                            <ExternalLink className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                          </a>
+                        ))
+                      )
+                    ) : chartScope === "groups" ? (
+                      [...data.groups]
+                        .sort((a, b) => b.totalViewsDelta - a.totalViewsDelta)
+                        .map((g) => (
+                          <button
+                            key={g.nicheGroup}
+                            onClick={() => setSelectedGroup(g.nicheGroup)}
+                            aria-pressed={g.nicheGroup === selectedGroup}
+                            className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                              g.nicheGroup === selectedGroup ? "bg-primary/15" : "hover:bg-muted/40"
+                            }`}
+                          >
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span
+                                className="h-2 w-2 flex-shrink-0 rounded-full"
+                                style={{ backgroundColor: colorForEntity(allGroupKeysSorted, g.nicheGroup) }}
+                              />
+                              <div className="min-w-0">
+                                <p className="truncate text-[11px] font-medium text-foreground">
+                                  {g.nicheGroup}
+                                </p>
+                                <p className="truncate text-[10px] text-muted-foreground">
+                                  {g.channelCount} channel{g.channelCount === 1 ? "" : "s"}
+                                </p>
+                              </div>
+                            </div>
+                            <p className="flex-shrink-0 text-[11px] tabular-nums text-foreground">
+                              {fmt(g.totalViewsDelta)}
                             </p>
-                            <p className="text-[10px] tabular-nums text-muted-foreground">
-                              {c.dominancePct.toFixed(1)}%
-                            </p>
+                          </button>
+                        ))
+                    ) : (
+                      groupChannels.map((c) => (
+                        <button
+                          key={c.handle}
+                          onClick={() => setSelectedChannel(c.handle)}
+                          aria-pressed={c.handle === selectedChannel}
+                          className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                            c.handle === selectedChannel ? "bg-primary/15" : "hover:bg-muted/40"
+                          }`}
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span
+                              className="h-2 w-2 flex-shrink-0 rounded-full"
+                              style={{ backgroundColor: colorForEntity(allChannelKeysSorted, c.handle) }}
+                            />
+                            <div className="min-w-0">
+                              <p className="truncate text-[11px] font-medium text-foreground">
+                                {c.handle}
+                              </p>
+                              <p className="truncate text-[10px] text-muted-foreground">
+                                {c.niche || "—"} · {fmt(c.subscribers)} subs
+                              </p>
+                            </div>
                           </div>
-                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                        </div>
-                      </button>
-                    ))}
+                          <div className="flex flex-shrink-0 items-center gap-1.5">
+                            <div className="text-right">
+                              <p className="text-[11px] tabular-nums text-foreground">
+                                {fmt(c.totalViewsDelta)}
+                              </p>
+                              <p className="text-[10px] tabular-nums text-muted-foreground">
+                                {c.dominancePct.toFixed(1)}%
+                              </p>
+                            </div>
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                          </div>
+                        </button>
+                      ))
+                    )}
                   </div>
                 </div>
               </section>
@@ -510,20 +741,35 @@ function StatTile({ label, value, sub }: { label: string; value: string; sub: st
   )
 }
 
+/** Three-level breadcrumb: all niche groups -> one group's channels -> one channel. Each non-terminal crumb jumps the chart's compare scope there. */
 function Breadcrumb({
   group,
   channel,
-  onReset,
+  scope,
+  onShowGroups,
+  onShowChannels,
 }: {
   group: string
   channel: string | null
-  onReset: () => void
+  scope: "groups" | "channels"
+  onShowGroups: () => void
+  onShowChannels: () => void
 }) {
+  const atGroups = scope === "groups" && !channel
+  const atChannels = scope === "channels" && !channel
+
   return (
     <div className="flex items-center gap-1.5 text-xs">
       <button
-        onClick={onReset}
-        className={channel ? "text-primary hover:underline" : "font-medium text-foreground"}
+        onClick={onShowGroups}
+        className={atGroups ? "font-medium text-foreground" : "text-primary hover:underline"}
+      >
+        All niche groups
+      </button>
+      <ChevronRight className="h-3 w-3 text-muted-foreground" />
+      <button
+        onClick={onShowChannels}
+        className={atChannels ? "font-medium text-foreground" : "text-primary hover:underline"}
       >
         {group}
       </button>
@@ -533,58 +779,6 @@ function Breadcrumb({
           <span className="font-medium text-foreground">{channel}</span>
         </>
       )}
-    </div>
-  )
-}
-
-function ChannelDetail({ channel }: { channel: ChannelRollup }) {
-  const formats: VideoType[] = ["LONG_FORM", "SHORTS"]
-
-  return (
-    <div className="grid h-full grid-cols-2 gap-3">
-      {formats.map((t) => {
-        const m = channel.byFormat[t]
-        return (
-          <div
-            key={t}
-            className="flex flex-col overflow-hidden rounded-lg border border-border bg-background p-3"
-          >
-            <div className="mb-2 flex flex-shrink-0 items-center gap-2">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: SERIES[t].color }}
-              />
-              <p className="text-xs font-semibold text-foreground">{SERIES[t].label}</p>
-            </div>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
-              <Metric label="Views / day" value={fmt(m.viewsPerDay)} />
-              <Metric
-                label="Acceleration"
-                value={
-                  m.velocityChangePct === null
-                    ? "—"
-                    : `${m.velocityChangePct > 0 ? "+" : ""}${m.velocityChangePct}%`
-                }
-              />
-              <Metric label="Videos" value={String(m.videoCount)} />
-              <Metric label="Outlier rate" value={`${m.outlierRatePct}%`} />
-              <Metric label="Hit rate" value={`${m.hitRatePct}%`} />
-              <Metric label="Engagement" value={`${m.engagementRatePct}%`} />
-              <Metric label="Uploads / week" value={String(m.uploadsPerWeek)} />
-              <Metric label="Total views" value={fmt(m.totalViews)} />
-            </dl>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="tabular-nums text-foreground">{value}</dd>
     </div>
   )
 }

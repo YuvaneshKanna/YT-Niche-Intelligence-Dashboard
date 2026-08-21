@@ -23,7 +23,7 @@ interface CacheEntry {
 const cache = new Map<RangeKey, CacheEntry>()
 
 function isRangeKey(v: string | null): v is RangeKey {
-  return v === "7d" || v === "14d" || v === "30d"
+  return v === "7d" || v === "14d" || v === "30d" || v === "90d" || v === "180d"
 }
 
 export async function GET(request: NextRequest) {

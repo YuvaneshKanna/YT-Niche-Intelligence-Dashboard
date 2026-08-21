@@ -254,7 +254,13 @@ export async function POST(request: NextRequest) {
   if (question.length > 4000) return json({ error: "question is too long" }, 400)
 
   const range: RangeKey =
-    body.range === "7d" || body.range === "14d" || body.range === "30d" ? body.range : "30d"
+    body.range === "7d" ||
+    body.range === "14d" ||
+    body.range === "30d" ||
+    body.range === "90d" ||
+    body.range === "180d"
+      ? body.range
+      : "30d"
 
   let context: string
   try {

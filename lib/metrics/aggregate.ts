@@ -637,6 +637,14 @@ export function aggregate(input: AggregateInput): AggregateResult {
       })
     }
 
+    // This channel's own daily trend, for the group→channel comparison chart.
+    // Reuses buildTrend with a single-channel roster map, so "roster changed"
+    // never fires here — that flag only means something when several
+    // channels are being summed together.
+    const chanDatesMap = new Map<string, Set<string>>()
+    for (const s of snaps) chanDatesMap.set(s.snapshotDate, new Set([handle]))
+    const { byDate: chanTotalsByDate } = channelTotalDeltasByDate(snaps)
+
     channels.push({
       handle,
       channelId: last.channelId,
@@ -652,6 +660,7 @@ export function aggregate(input: AggregateInput): AggregateResult {
       dominancePct: 0, // filled once group totals are known
       byFormat,
       coverageDays: snaps.length,
+      trend: buildTrend(chanDeltas, chanTotalsByDate, chanDatesMap, fullCoverageFrom),
     })
   }
 

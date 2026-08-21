@@ -8,12 +8,14 @@ export type VideoType = "SHORTS" | "LONG_FORM"
 
 export type RecordType = "OUTLIER" | "RECENT_UPLOAD" | "HISTORICAL"
 
-export type RangeKey = "7d" | "14d" | "30d"
+export type RangeKey = "7d" | "14d" | "30d" | "90d" | "180d"
 
 export const RANGE_DAYS: Record<RangeKey, number> = {
   "7d": 7,
   "14d": 14,
   "30d": 30,
+  "90d": 90,
+  "180d": 180,
 }
 
 /** One row of `Sheet4_Daily_Channel_Snapshot` — one channel, one day. */
@@ -128,6 +130,8 @@ export interface ChannelRollup {
   byFormat: Record<VideoType, FormatMetrics>
   /** Days of snapshot coverage actually present for this channel. */
   coverageDays: number
+  /** This channel's own daily views trend, for the channel-comparison chart. */
+  trend: TrendPoint[]
 }
 
 export interface VideoRollup {
