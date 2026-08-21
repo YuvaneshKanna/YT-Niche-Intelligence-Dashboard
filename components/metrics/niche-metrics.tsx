@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import Link from "next/link"
 import { AlertTriangle, ArrowLeft, ChevronRight, FileText, RefreshCw, Settings, Sparkles, Youtube } from "lucide-react"
 import type {
   ChannelRollup,
@@ -16,6 +15,7 @@ import { SERIES, TrendLegend, ViewsTrend, type TrendMode } from "./views-trend"
 import { InsightsDrawer } from "./insights-drawer"
 import { ChatPanel } from "./chat-panel"
 import { SettingsModal } from "@/components/settings-modal"
+import { PageNav } from "@/components/page-nav"
 
 const RANGES: RangeKey[] = ["7d", "14d", "30d"]
 const RANGE_LABEL: Record<RangeKey, string> = { "7d": "7 days", "14d": "14 days", "30d": "30 days" }
@@ -111,22 +111,11 @@ export function NicheMetrics() {
               <Youtube className="h-5 w-5 text-primary-foreground" />
             </div>
           </div>
-          {/* The nav carries both page names, so the wordmark is not repeated here. */}
-          <nav className="flex items-center gap-1">
-            <Link
-              href="/"
-              className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            >
-              YT Niche Overview
-            </Link>
-            <Link
-              href="/metrics"
-              aria-current="page"
-              className="rounded-lg bg-muted/60 px-3 py-1.5 text-sm font-medium text-foreground"
-            >
-              Niche Breakdown
-            </Link>
-          </nav>
+          {/*
+            Dropdown, not a tab row — this is headed for 5-8 pages, and a
+            strip that wide never fits the header.
+          */}
+          <PageNav />
         </div>
 
         <div className="flex items-center gap-2">
@@ -155,10 +144,11 @@ export function NicheMetrics() {
           </button>
           <button
             onClick={() => setShowSettings(true)}
-            aria-label="Settings"
-            className="rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+            aria-label="Open settings"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
           >
             <Settings className="h-3.5 w-3.5" />
+            Settings
           </button>
           <button
             onClick={() => setShowInsights(true)}

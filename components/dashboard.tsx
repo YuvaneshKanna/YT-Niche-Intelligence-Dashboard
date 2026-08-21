@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from "react"
 import Link from "next/link"
-import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, BarChart3, Settings as SettingsIcon } from "lucide-react"
+import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, Settings as SettingsIcon } from "lucide-react"
 import * as XLSX from "xlsx"
 import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
@@ -15,6 +15,7 @@ import { ChannelCard } from "@/components/channel-card"
 import { SimilarChannelCard } from "@/components/similar-channel-card"
 import { UserSelectModal } from "@/components/user-select-modal"
 import { SettingsModal } from "@/components/settings-modal"
+import { PageNav } from "@/components/page-nav"
 
 import {
   type Channel,
@@ -575,39 +576,26 @@ export function Dashboard() {
     <div className="flex h-screen bg-background overflow-hidden">
       {/* ── LEFT SIDEBAR ── */}
       <aside className="w-[320px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden">
-        {/* Logo */}
+        {/* Logo + page picker */}
         {/*
-          Both page names live in the tab row so the 320px sidebar can show
-          them without truncating. A bold wordmark plus a full-length link
-          does not fit at this width — measured, not assumed.
+          The page picker is a dropdown, not a row of tabs — this is headed
+          for 5-8 pages, and a tab strip that wide never fits the 320px
+          sidebar. Settings gets its own labeled button so it doesn't read
+          as just another nav item.
         */}
         <div className="flex-shrink-0 h-14 flex items-center gap-1.5 px-3 border-b border-sidebar-border">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
             <Youtube className="w-5 h-5 text-primary-foreground" />
           </div>
-          <nav className="flex items-center gap-1 min-w-0">
-            <span
-              aria-current="page"
-              className="flex-shrink-0 rounded-lg bg-sidebar-accent px-2 py-1.5 text-[11px] font-semibold text-sidebar-foreground"
-            >
-              YT Niche Overview
-            </span>
-            <Link
-              href="/metrics"
-              className="flex-shrink-0 flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-            >
-              <BarChart3 className="w-3.5 h-3.5 flex-shrink-0" />
-              Niche Breakdown
-            </Link>
-            <button
-              onClick={() => setShowSettings(true)}
-              title="Settings"
-              aria-label="Settings"
-              className="flex-shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-            >
-              <SettingsIcon className="w-3.5 h-3.5" />
-            </button>
-          </nav>
+          <PageNav />
+          <button
+            onClick={() => setShowSettings(true)}
+            aria-label="Open settings"
+            className="ml-auto flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-sidebar-border px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+          >
+            <SettingsIcon className="w-3.5 h-3.5" />
+            Settings
+          </button>
         </div>
 
         {/* Search */}
