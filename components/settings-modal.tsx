@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Check, Copy, Eye, EyeOff, Info, Key, Sparkles, Trash2, X } from "lucide-react"
+import { Check, Copy, Eye, EyeOff, Info, Key, RefreshCw, Sparkles, Trash2, X } from "lucide-react"
 import {
   clearSettings,
   DEFAULT_SETTINGS,
@@ -10,6 +10,13 @@ import {
   type ChatMode,
   type DashboardSettings,
 } from "@/lib/settings"
+
+/** 32 random bytes as hex, from the browser's CSPRNG. */
+function generateSecret(): string {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
+}
 
 interface SettingsModalProps {
   open: boolean
@@ -134,14 +141,19 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               />
               <Field
                 label="Bridge shared secret"
-                hint="Any long random string. The same value must be set as SANDBOX_SHARED_SECRET in Vercel."
+                hint="A password you invent, so only your dashboard can talk to the bridge. Click Generate, then set the SAME value as SANDBOX_SHARED_SECRET in Vercel — if they differ, the bridge returns 401."
                 value={settings.bridgeSecret}
                 onChange={(v) => set("bridgeSecret", v)}
                 secret
                 revealed={reveal.bridge}
                 onToggleReveal={() => setReveal((r) => ({ ...r, bridge: !r.bridge }))}
-                placeholder="paste or generate a long random string"
+                placeholder="click Generate"
+                onGenerate={() => {
+                  set("bridgeSecret", generateSecret())
+                  setReveal((r) => ({ ...r, bridge: true }))
+                }}
               />
+              {settings.bridgeSecret && <VercelEnvHint secret={settings.bridgeSecret} />}
               <BridgeCommand token={settings.claudeOauthToken} secret={settings.bridgeSecret} />
             </section>
           )}
@@ -246,6 +258,7 @@ function Field({
   revealed,
   onToggleReveal,
   placeholder,
+  onGenerate,
 }: {
   label: string
   hint?: string
@@ -255,6 +268,7 @@ function Field({
   revealed?: boolean
   onToggleReveal?: () => void
   placeholder?: string
+  onGenerate?: () => void
 }) {
   return (
     <div>
@@ -269,6 +283,16 @@ function Field({
           autoComplete="off"
           className="flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] text-foreground outline-none placeholder:font-sans placeholder:text-muted-foreground focus:border-primary/50"
         />
+        {onGenerate && (
+          <button
+            onClick={onGenerate}
+            title="Generate a random secret"
+            className="flex items-center gap-1 rounded-lg border border-border px-2 text-[10px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Generate
+          </button>
+        )}
         {secret && (
           <button
             onClick={onToggleReveal}
@@ -330,6 +354,37 @@ function BridgeCommand({ token, secret }: { token: string; secret: string }) {
           : "Fill in both fields above and this command becomes ready to paste."}{" "}
         No Docker needed — it is a plain Node process.
       </p>
+    </div>
+  )
+}
+
+/** Shows the exact Vercel variable to create, with a copy button. */
+function VercelEnvHint({ secret }: { secret: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    navigator.clipboard
+      .writeText(secret)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      })
+      .catch(() => {
+        // Clipboard blocked — the value is visible above for manual copying.
+      })
+  }
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2">
+      <p className="text-[10px] leading-relaxed text-amber-200/90">
+        Also add this in Vercel as <code className="rounded bg-muted px-1">SANDBOX_SHARED_SECRET</code>,
+        then redeploy. It must match exactly.
+      </p>
+      <button
+        onClick={copy}
+        className="flex flex-shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        {copied ? "Copied" : "Copy value"}
+      </button>
     </div>
   )
 }
