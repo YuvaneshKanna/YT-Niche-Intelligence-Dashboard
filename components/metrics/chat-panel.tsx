@@ -157,6 +157,10 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
     setNeedsAccess(false)
     // Persist it so it's already there next time — not just for this open panel.
     saveSettings({ ...loadSettings(), chatAccessToken: token })
+
+    // Retry whatever got blocked instead of leaving the user to retype it.
+    const lastQuestion = [...turns].reverse().find((t) => t.role === "user")?.content
+    if (lastQuestion) send(lastQuestion)
   }
 
   if (!open) return null
