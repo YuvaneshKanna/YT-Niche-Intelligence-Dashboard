@@ -24,18 +24,42 @@ authorises your whole Claude account.
 
 ## 2. Run the bridge
 
+**Recommended — supervised with pm2, so it restarts itself if it crashes**
+instead of chat just going quiet until someone notices:
+
+```bash
+npm i -g @anthropic-ai/claude-code pm2
+
+# in this window, with your real values:
+$env:CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat..."      # PowerShell; CMD: set VAR=value (no quotes)
+$env:SANDBOX_SHARED_SECRET="..."
+
+pm2 start ecosystem.config.cjs
+pm2 save
+```
+
+`pm2 logs claude-bridge` shows what it's doing; `pm2 restart claude-bridge`
+restarts it by hand (e.g. after rotating the token). See the comments in
+`ecosystem.config.cjs` for what pm2 does and does not cover — notably, it
+does not manage the tunnel (see [Reliability](#reliability-what-still-needs-you) below).
+
+**Quick one-off test, no supervision:**
+`npm i -g @anthropic-ai/claude-code` then
+`CLAUDE_CODE_OAUTH_TOKEN=... SANDBOX_SHARED_SECRET=... node server.mjs`
+— dies the moment the window closes or the process crashes.
+
+**Docker**, if you'd rather run it in a container:
+
 ```bash
 docker build -t niche-chat-bridge .
 
 docker run -d --name niche-chat \
+  --restart unless-stopped \
   -p 8787:8787 \
   -e CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat..." \
   -e SANDBOX_SHARED_SECRET="$(openssl rand -hex 32)" \
   niche-chat-bridge
 ```
-
-Without Docker: `npm i -g @anthropic-ai/claude-code` then
-`CLAUDE_CODE_OAUTH_TOKEN=... SANDBOX_SHARED_SECRET=... node server.mjs`.
 
 Check it: `curl localhost:8787/health` → `{"ok":true,...}`
 
@@ -72,6 +96,38 @@ stores it in the browser.
 
 It is not real authentication — it is a shared password. If this dashboard ever
 holds anything sensitive, put proper auth in front of the whole site.
+
+## Reliability: what still needs you
+
+pm2 (step 2) fixes the bridge dying. It does **not** fix the tunnel, and the
+tunnel is the more common failure:
+
+**If you're using a Cloudflare Quick Tunnel** (`cloudflared tunnel --url
+http://localhost:8787`), it hands out a brand-new random
+`https://<four-words>.trycloudflare.com` address every single time that
+process starts — there is no way to keep the same one. So even with pm2
+keeping the bridge alive forever, if the tunnel window closes or crashes and
+you (or a supervisor) restart it, `SANDBOX_CHAT_URL` in Vercel now points at a
+dead URL and chat breaks with a 530 until you notice, grab the new URL, and
+update + redeploy. This is inherent to Quick Tunnels, not a bug — Cloudflare
+designed them to be throwaway.
+
+**Fix: a named tunnel**, which gets a fixed URL that survives restarts
+(requires a free Cloudflare account, no domain purchase needed):
+
+```bash
+cloudflared tunnel login                       # opens a browser to authorise
+cloudflared tunnel create niche-chat-bridge     # prints a tunnel ID
+cloudflared tunnel route dns niche-chat-bridge chat.yourdomain.com
+# no domain of your own? Cloudflare also lets you skip `route dns` and use
+# the auto-generated <tunnel-id>.cfargotunnel.com hostname instead.
+cloudflared tunnel run --url http://localhost:8787 niche-chat-bridge
+```
+
+Now `SANDBOX_CHAT_URL` is set **once**, permanently — restarting the tunnel
+(including via pm2, if you add it to `ecosystem.config.cjs` once it's named)
+never changes it again. Until you do this, treat "chat suddenly 530s" as
+routine and check the tunnel window first, not the bridge.
 
 ## Notes
 

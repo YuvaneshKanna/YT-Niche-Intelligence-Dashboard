@@ -350,15 +350,25 @@ function Field({
 /** Builds the exact command to start the bridge, with the entered values filled in. */
 function BridgeCommand({ token, secret }: { token: string; secret: string }) {
   const [copied, setCopied] = useState(false)
+  const [supervised, setSupervised] = useState(true)
   const ready = Boolean(token && secret)
 
-  const cmd = [
-    "npm install -g @anthropic-ai/claude-code",
-    "cd sandbox",
-    `$env:CLAUDE_CODE_OAUTH_TOKEN="${token || "<paste your token above>"}"`,
-    `$env:SANDBOX_SHARED_SECRET="${secret || "<paste your secret above>"}"`,
-    "node server.mjs",
-  ].join("\n")
+  const cmd = supervised
+    ? [
+        "npm install -g @anthropic-ai/claude-code pm2",
+        "cd sandbox",
+        `$env:CLAUDE_CODE_OAUTH_TOKEN="${token || "<paste your token above>"}"`,
+        `$env:SANDBOX_SHARED_SECRET="${secret || "<paste your secret above>"}"`,
+        "pm2 start ecosystem.config.cjs",
+        "pm2 save",
+      ].join("\n")
+    : [
+        "npm install -g @anthropic-ai/claude-code",
+        "cd sandbox",
+        `$env:CLAUDE_CODE_OAUTH_TOKEN="${token || "<paste your token above>"}"`,
+        `$env:SANDBOX_SHARED_SECRET="${secret || "<paste your secret above>"}"`,
+        "node server.mjs",
+      ].join("\n")
 
   const copy = () => {
     navigator.clipboard
@@ -376,13 +386,21 @@ function BridgeCommand({ token, secret }: { token: string; secret: string }) {
     <div className="rounded-lg border border-border bg-background p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="text-xs font-medium text-foreground">Start the bridge (PowerShell)</p>
-        <button
-          onClick={copy}
-          className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          {copied ? "Copied" : "Copy"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setSupervised((v) => !v)}
+            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {supervised ? "Auto-restart (pm2)" : "Plain — no restart"}
+          </button>
+          <button
+            onClick={copy}
+            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
       </div>
       <pre className="overflow-x-auto rounded-md bg-muted/40 p-2 text-[10px] leading-relaxed text-foreground">
         <code>{cmd}</code>
@@ -392,6 +410,8 @@ function BridgeCommand({ token, secret }: { token: string; secret: string }) {
           ? "Run this in the repo root. Then expose it over HTTPS and set SANDBOX_CHAT_URL and SANDBOX_SHARED_SECRET in Vercel."
           : "Fill in both fields above and this command becomes ready to paste."}{" "}
         No Docker needed — it is a plain Node process.
+        {supervised &&
+          " pm2 restarts the bridge if it crashes — it does not manage the cloudflared tunnel, which needs its own window (see sandbox/README.md)."}
       </p>
     </div>
   )
