@@ -33,6 +33,10 @@ export interface DashboardSettings {
   bridgeSecret: string
   /** Access token for a server that has CHAT_ACCESS_TOKEN set. */
   chatAccessToken: string
+  /** Model for subscription mode (--model on the CLI). Empty means the CLI's own default. */
+  chatModel: string
+  /** Effort level for subscription mode (--effort on the CLI). Empty means the CLI's own default. */
+  chatEffort: string
 }
 
 export const DEFAULT_SETTINGS: DashboardSettings = {
@@ -42,7 +46,20 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
   claudeOauthToken: "",
   bridgeSecret: "",
   chatAccessToken: "",
+  chatModel: "",
+  chatEffort: "",
 }
+
+/** Models the subscription-mode picker offers, in the order shown. */
+export const CHAT_MODELS = [
+  { id: "claude-opus-5", label: "Opus 5" },
+  { id: "claude-sonnet-5", label: "Sonnet 5" },
+  { id: "claude-fable-5", label: "Fable 5" },
+  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+] as const
+
+/** Effort levels the CLI's --effort flag accepts, low to max. */
+export const CHAT_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
 
 const STORAGE_KEY = "yt-dashboard-settings"
 

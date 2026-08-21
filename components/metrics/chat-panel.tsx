@@ -3,12 +3,33 @@
 import { useEffect, useRef, useState } from "react"
 import { ArrowUp, Lock, Sparkles, Square, X } from "lucide-react"
 import type { RangeKey } from "@/lib/metrics/types"
-import { chatHeaders, loadSettings, saveSettings } from "@/lib/settings"
+import {
+  CHAT_EFFORTS,
+  CHAT_MODELS,
+  chatHeaders,
+  type ChatMode,
+  loadSettings,
+  saveSettings,
+} from "@/lib/settings"
 
 interface Turn {
   role: "user" | "assistant"
   content: string
   error?: boolean
+}
+
+/** The rate_limit_event the CLI emits — the same numbers /usage shows interactively. */
+interface RateLimitInfo {
+  status: string
+  resetsAt: number
+  rateLimitType: string
+  utilization: number
+  isUsingOverage: boolean
+}
+
+const RATE_LIMIT_LABEL: Record<string, string> = {
+  seven_day: "7-day",
+  five_hour: "5-hour",
 }
 
 interface ChatPanelProps {
@@ -40,6 +61,19 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
   // inline prompt below is only a fallback for when it wasn't set there.
   const [accessToken, setAccessToken] = useState(() => loadSettings().chatAccessToken)
   const [needsAccess, setNeedsAccess] = useState(false)
+
+  // Model, effort and live plan usage — the same controls claude.ai shows,
+  // surfaced here instead of buried in Settings. Effort and the usage meter
+  // only mean anything in subscription mode: API mode has no CLI effort
+  // levels and no plan-usage rate limiting (it's pay-per-token).
+  const [mode, setMode] = useState<ChatMode>(() => loadSettings().chatMode)
+  const [model, setModel] = useState(() => {
+    const s = loadSettings()
+    return s.chatMode === "api" ? s.anthropicModel : s.chatModel
+  })
+  const [effort, setEffort] = useState(() => loadSettings().chatEffort)
+  const [usage, setUsage] = useState<RateLimitInfo | null>(null)
+
   const chatIdRef = useRef<string>("")
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -51,6 +85,16 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
     }
   }, [])
 
+  // Re-sync from Settings each time the panel opens, in case the mode or
+  // credentials changed while it was closed.
+  useEffect(() => {
+    if (!open) return
+    const s = loadSettings()
+    setMode(s.chatMode)
+    setModel(s.chatMode === "api" ? s.anthropicModel : s.chatModel)
+    setEffort(s.chatEffort)
+  }, [open])
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -59,6 +103,17 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
   }, [open, busy, onClose])
+
+  const updateModel = (value: string) => {
+    setModel(value)
+    const s = loadSettings()
+    saveSettings(mode === "api" ? { ...s, anthropicModel: value } : { ...s, chatModel: value })
+  }
+
+  const updateEffort = (value: string) => {
+    setEffort(value)
+    saveSettings({ ...loadSettings(), chatEffort: value })
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
@@ -102,7 +157,14 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
           ...chatHeaders(loadSettings()),
           ...(accessToken ? { "x-chat-access": accessToken } : {}),
         },
-        body: JSON.stringify({ question: q, chatId: chatIdRef.current, range }),
+        body: JSON.stringify({
+          question: q,
+          chatId: chatIdRef.current,
+          range,
+          // Only meaningful to the sandbox bridge — the API path picks its
+          // model up from the x-anthropic-model header already in chatHeaders.
+          ...(mode === "subscription" ? { model: model || undefined, effort: effort || undefined } : {}),
+        }),
         signal: controller.signal,
       })
 
@@ -132,7 +194,12 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
         for (const part of parts) {
           const line = part.trim()
           if (!line.startsWith("data:")) continue
-          let evt: { type?: string; text?: string; error?: string }
+          let evt: {
+            type?: string
+            text?: string
+            error?: string
+            rateLimit?: RateLimitInfo
+          }
           try {
             evt = JSON.parse(line.slice(5).trim())
           } catch {
@@ -140,6 +207,9 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
           }
           if (evt.type === "text" && evt.text) appendToLast(evt.text)
           else if (evt.type === "error") appendToLast(`\n\n${evt.error ?? "Error"}`, true)
+          else if ((evt.type === "usage" || evt.type === "done") && evt.rateLimit) {
+            setUsage(evt.rateLimit)
+          }
         }
       }
     } catch (err: unknown) {
@@ -190,6 +260,41 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
             <X className="h-3.5 w-3.5" />
           </button>
         </header>
+
+        {/* Model / effort / usage — same controls claude.ai shows, live-switchable mid-conversation. */}
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
+          <div className="flex items-center gap-1.5">
+            <select
+              value={model}
+              onChange={(e) => updateModel(e.target.value)}
+              aria-label="Model"
+              className="rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:border-primary/50"
+            >
+              <option value="">Default model</option>
+              {CHAT_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            {mode === "subscription" && (
+              <select
+                value={effort}
+                onChange={(e) => updateEffort(e.target.value)}
+                aria-label="Effort"
+                className="rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:border-primary/50"
+              >
+                <option value="">Default effort</option>
+                {CHAT_EFFORTS.map((lvl) => (
+                  <option key={lvl} value={lvl}>
+                    {lvl}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {mode === "subscription" && usage && <UsageMeter usage={usage} />}
+        </div>
 
         {needsAccess && <AccessPrompt onSave={saveAccess} />}
 
@@ -283,6 +388,32 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
         </div>
       </aside>
     </>
+  )
+}
+
+/** Plan usage against your Claude subscription's rate limits — the same numbers `/usage` shows. */
+function UsageMeter({ usage }: { usage: RateLimitInfo }) {
+  const pct = Math.round(usage.utilization * 100)
+  const color = pct >= 90 ? "bg-destructive" : pct >= 75 ? "bg-amber-500" : "bg-emerald-500"
+  const typeLabel = RATE_LIMIT_LABEL[usage.rateLimitType] ?? usage.rateLimitType
+  const resets = new Date(usage.resetsAt * 1000)
+
+  return (
+    <div
+      className="flex items-center gap-1.5"
+      title={`${typeLabel} usage resets ${resets.toLocaleString()}`}
+    >
+      <div className="h-1.5 w-14 overflow-hidden rounded-full bg-muted">
+        <div
+          className={`h-full rounded-full ${color}`}
+          style={{ width: `${Math.min(100, Math.max(2, pct))}%` }}
+        />
+      </div>
+      <span className="text-[10px] tabular-nums text-muted-foreground">
+        {pct}% {typeLabel}
+        {usage.isUsingOverage ? " · overage" : ""}
+      </span>
+    </div>
   )
 }
 

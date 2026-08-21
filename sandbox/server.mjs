@@ -121,6 +121,10 @@ const server = createServer(async (req, res) => {
   const question = String(body.question || "").trim()
   const context = String(body.context || "")
   const chatId = String(body.chatId || randomUUID())
+  // Optional per-request overrides — same knobs the CLI exposes with
+  // /model and /effort interactively, just passed through from the chat panel.
+  const model = String(body.model || "").trim()
+  const effort = String(body.effort || "").trim()
 
   if (!question) {
     res.writeHead(400, { "Content-Type": "application/json" })
@@ -155,6 +159,11 @@ const server = createServer(async (req, res) => {
     SYSTEM_RULES,
   ]
   if (known) args.push("--resume", known.sessionId)
+  // --model/--effort work fine alongside --resume (verified directly) — the
+  // CLI just switches mid-session, same as picking a different model in the
+  // claude.ai UI, at the cost of one cache miss on that turn.
+  if (model) args.push("--model", model)
+  if (effort) args.push("--effort", effort)
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -171,6 +180,7 @@ const server = createServer(async (req, res) => {
   })
 
   let settled = false
+  let lastRateLimit = null
   const finish = (payload) => {
     if (settled) return
     settled = true
@@ -212,6 +222,14 @@ const server = createServer(async (req, res) => {
         send({ type: "status", text: `retrying (${evt.error})…` })
       }
 
+      // Plan usage against your Claude subscription's rate limits — the same
+      // numbers `/usage` shows interactively. Forwarded live so the chat
+      // panel can show a meter, same as the counters on claude.ai.
+      if (evt.type === "rate_limit_event" && evt.rate_limit_info) {
+        lastRateLimit = evt.rate_limit_info
+        send({ type: "usage", rateLimit: evt.rate_limit_info })
+      }
+
       if (evt.type === "result") {
         if (evt.session_id) {
           sessions.set(chatId, { sessionId: evt.session_id, lastUsed: Date.now() })
@@ -225,6 +243,7 @@ const server = createServer(async (req, res) => {
           chatId,
           sessionId: evt.session_id,
           costUsd: evt.total_cost_usd,
+          rateLimit: lastRateLimit,
         })
         return
       }

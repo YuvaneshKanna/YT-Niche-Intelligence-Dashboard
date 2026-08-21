@@ -242,7 +242,7 @@ export async function POST(request: NextRequest) {
     return json({ error: "Chat access token required or incorrect.", code: "LOCKED" }, 401)
   }
 
-  let body: { question?: string; chatId?: string; range?: string }
+  let body: { question?: string; chatId?: string; range?: string; model?: string; effort?: string }
   try {
     body = await request.json()
   } catch {
@@ -281,7 +281,13 @@ export async function POST(request: NextRequest) {
     upstream = await fetch(`${(sandboxUrl as string).replace(/\/$/, "")}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-sandbox-secret": secret as string },
-      body: JSON.stringify({ question, context, chatId: body.chatId }),
+      body: JSON.stringify({
+        question,
+        context,
+        chatId: body.chatId,
+        model: body.model,
+        effort: body.effort,
+      }),
     })
   } catch (err: unknown) {
     return json(
