@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, ArrowLeft, ChevronRight, RefreshCw, Youtube } from "lucide-react"
+import { AlertTriangle, ArrowLeft, ChevronRight, RefreshCw, Sparkles, Youtube } from "lucide-react"
 import type {
   ChannelRollup,
   MetricsPayload,
@@ -13,6 +13,7 @@ import type {
 import { ScoreCard } from "./score-card"
 import { OutlierTable } from "./outlier-table"
 import { SERIES, TrendLegend, ViewsTrend, type TrendMode } from "./views-trend"
+import { InsightsDrawer } from "./insights-drawer"
 
 const RANGES: RangeKey[] = ["7d", "14d", "30d"]
 const RANGE_LABEL: Record<RangeKey, string> = { "7d": "7 days", "14d": "14 days", "30d": "30 days" }
@@ -43,6 +44,7 @@ export function NicheMetrics() {
   const [trendMode, setTrendMode] = useState<TrendMode>("split")
   const [videoType, setVideoType] = useState<VideoType>("LONG_FORM")
   const [showWarnings, setShowWarnings] = useState(false)
+  const [showInsights, setShowInsights] = useState(false)
 
   const load = (r: RangeKey, refresh = false) => {
     setLoading(true)
@@ -146,6 +148,13 @@ export function NicheMetrics() {
             className="rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            onClick={() => setShowInsights(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Analysis
           </button>
         </div>
       </header>
@@ -339,6 +348,12 @@ export function NicheMetrics() {
           )}
         </div>
       )}
+
+      <InsightsDrawer
+        open={showInsights}
+        onClose={() => setShowInsights(false)}
+        nicheGroup={selectedGroup}
+      />
     </div>
   )
 }
