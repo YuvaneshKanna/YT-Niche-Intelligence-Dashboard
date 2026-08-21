@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, ArrowLeft, ChevronRight, RefreshCw, Sparkles, Youtube } from "lucide-react"
+import { AlertTriangle, ArrowLeft, ChevronRight, FileText, RefreshCw, Sparkles, Youtube } from "lucide-react"
 import type {
   ChannelRollup,
   MetricsPayload,
@@ -14,6 +14,7 @@ import { ScoreCard } from "./score-card"
 import { OutlierTable } from "./outlier-table"
 import { SERIES, TrendLegend, ViewsTrend, type TrendMode } from "./views-trend"
 import { InsightsDrawer } from "./insights-drawer"
+import { ChatPanel } from "./chat-panel"
 
 const RANGES: RangeKey[] = ["7d", "14d", "30d"]
 const RANGE_LABEL: Record<RangeKey, string> = { "7d": "7 days", "14d": "14 days", "30d": "30 days" }
@@ -45,6 +46,7 @@ export function NicheMetrics() {
   const [videoType, setVideoType] = useState<VideoType>("LONG_FORM")
   const [showWarnings, setShowWarnings] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
+  const [showChat, setShowChat] = useState(false)
 
   const load = (r: RangeKey, refresh = false) => {
     setLoading(true)
@@ -153,8 +155,15 @@ export function NicheMetrics() {
             onClick={() => setShowInsights(true)}
             className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
           >
+            <FileText className="h-3.5 w-3.5" />
+            Insights
+          </button>
+          <button
+            onClick={() => setShowChat(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          >
             <Sparkles className="h-3.5 w-3.5" />
-            Analysis
+            Ask Claude
           </button>
         </div>
       </header>
@@ -352,6 +361,13 @@ export function NicheMetrics() {
       <InsightsDrawer
         open={showInsights}
         onClose={() => setShowInsights(false)}
+        nicheGroup={selectedGroup}
+      />
+
+      <ChatPanel
+        open={showChat}
+        onClose={() => setShowChat(false)}
+        range={range}
         nicheGroup={selectedGroup}
       />
     </div>
