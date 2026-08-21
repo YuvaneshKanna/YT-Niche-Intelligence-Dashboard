@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Check, Copy, Eye, EyeOff, Info, Key, RefreshCw, Sparkles, Trash2, X } from "lucide-react"
+import { AlertTriangle, Check, Copy, Eye, EyeOff, Info, Key, RefreshCw, Sparkles, Trash2, X } from "lucide-react"
 import {
   clearSettings,
   DEFAULT_SETTINGS,
@@ -18,6 +18,14 @@ function generateSecret(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
 }
 
+interface ChatStatus {
+  sandboxUrlSet: boolean
+  sandboxSecretSet: boolean
+  bridgeReachable: boolean | null
+  serverApiKeySet: boolean
+  accessTokenRequired: boolean
+}
+
 interface SettingsModalProps {
   open: boolean
   onClose: () => void
@@ -28,11 +36,23 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [reveal, setReveal] = useState<Record<string, boolean>>({})
   const [saved, setSaved] = useState(false)
   const [storageBlocked, setStorageBlocked] = useState(false)
+  const [status, setStatus] = useState<ChatStatus | null>(null)
+  const [checking, setChecking] = useState(false)
+
+  const checkStatus = () => {
+    setChecking(true)
+    fetch("/api/chat/status")
+      .then((r) => r.json())
+      .then((j) => setStatus(j as ChatStatus))
+      .catch(() => setStatus(null))
+      .finally(() => setChecking(false))
+  }
 
   useEffect(() => {
     if (open) {
       setSettings(loadSettings())
       setSaved(false)
+      checkStatus()
     }
   }, [open])
 
@@ -106,6 +126,16 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               />
             </div>
           </section>
+
+          {settings.chatMode === "subscription" && (
+            <SetupChecklist
+              status={status}
+              checking={checking}
+              onRecheck={checkStatus}
+              hasToken={Boolean(settings.claudeOauthToken)}
+              hasSecret={Boolean(settings.bridgeSecret)}
+            />
+          )}
 
           {settings.chatMode === "api" ? (
             <section className="space-y-3">
@@ -395,5 +425,97 @@ function VercelEnvHint({ secret }: { secret: string }) {
         {copied ? "Copied" : "Copy value"}
       </button>
     </div>
+  )
+}
+
+/**
+ * Live view of what still has to happen before subscription chat works.
+ *
+ * The first two rows are local (this browser); the rest are server-side and
+ * come from /api/chat/status. Without this, the only feedback was a failed
+ * message, which does not say WHICH piece is missing.
+ */
+function SetupChecklist({
+  status,
+  checking,
+  onRecheck,
+  hasToken,
+  hasSecret,
+}: {
+  status: ChatStatus | null
+  checking: boolean
+  onRecheck: () => void
+  hasToken: boolean
+  hasSecret: boolean
+}) {
+  const rows: { label: string; done: boolean | null; note: string }[] = [
+    { label: "OAuth token entered", done: hasToken, note: "in this browser" },
+    { label: "Bridge secret entered", done: hasSecret, note: "in this browser" },
+    {
+      label: "SANDBOX_CHAT_URL set in Vercel",
+      done: status ? status.sandboxUrlSet : null,
+      note: "server env var",
+    },
+    {
+      label: "SANDBOX_SHARED_SECRET set in Vercel",
+      done: status ? status.sandboxSecretSet : null,
+      note: "server env var",
+    },
+    {
+      label: "Bridge running and reachable",
+      done: status ? status.bridgeReachable : null,
+      note:
+        status && status.sandboxUrlSet && status.bridgeReachable === false
+          ? "Vercel cannot reach it — is `node server.mjs` running, and the tunnel up?"
+          : "checked live from the server",
+    },
+  ]
+
+  const blocked = rows.some((r) => r.done === false || r.done === null)
+
+  return (
+    <section className="rounded-xl border border-border bg-background p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-foreground">Setup status</p>
+        <button
+          onClick={onRecheck}
+          disabled={checking}
+          className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3 w-3 ${checking ? "animate-spin" : ""}`} />
+          Re-check
+        </button>
+      </div>
+
+      <ul className="space-y-1">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-start gap-2">
+            {r.done === true ? (
+              <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-emerald-400" />
+            ) : r.done === false ? (
+              <X className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-destructive" />
+            ) : (
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+            )}
+            <div className="min-w-0">
+              <p
+                className={`text-[11px] ${r.done === true ? "text-muted-foreground" : "text-foreground"}`}
+              >
+                {r.label}
+              </p>
+              <p className="text-[10px] leading-relaxed text-muted-foreground">{r.note}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {blocked && (
+        <p className="mt-2 border-t border-border pt-2 text-[10px] leading-relaxed text-amber-200/90">
+          Filling the fields above does not start anything — they only build the command. Chat
+          works once every row is green. To use chat right now with no hosting, switch to
+          API-key mode.
+        </p>
+      )}
+    </section>
   )
 }
