@@ -263,5 +263,20 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, () => {
-  console.log(`claude chat bridge listening on :${PORT}`)
+  // This process must stay running for chat to work. Saying so explicitly,
+  // because "listening" followed by a shell prompt looks like success.
+  console.log("")
+  console.log(`  claude chat bridge listening on http://localhost:${PORT}`)
+  console.log("")
+  console.log("  KEEP THIS WINDOW OPEN. Closing it, or pressing Ctrl+C, stops chat.")
+  console.log("  Check from another window:  curl.exe http://localhost:" + PORT + "/health")
+  console.log("")
 })
+
+// A clean shutdown should be obvious in the log rather than silent.
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    console.log(`\n  bridge stopped (${signal}) — chat will fail until you start it again`)
+    process.exit(0)
+  })
+}
