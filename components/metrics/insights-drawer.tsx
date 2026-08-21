@@ -64,11 +64,8 @@ export function InsightsDrawer({ open, onClose, nicheGroup }: InsightsDrawerProp
 
   return (
     <>
-      <div
-        className="fixed inset-0 z-40 bg-background/60 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden
-      />
+      {/* Click-outside-to-close only — same as the chat panel, no dimming/blur of the dashboard. */}
+      <div className="fixed inset-0 z-40" onClick={onClose} aria-hidden />
       <aside
         role="dialog"
         aria-label="Claude analysis"

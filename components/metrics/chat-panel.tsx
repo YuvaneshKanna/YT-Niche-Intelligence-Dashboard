@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { ArrowUp, Lock, Sparkles, Square, X } from "lucide-react"
 import type { RangeKey } from "@/lib/metrics/types"
-import { chatHeaders, loadSettings } from "@/lib/settings"
+import { chatHeaders, loadSettings, saveSettings } from "@/lib/settings"
 
 interface Turn {
   role: "user" | "assistant"
@@ -36,7 +36,9 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
-  const [accessToken, setAccessToken] = useState("")
+  // Seeded from Settings so a token entered there works immediately — the
+  // inline prompt below is only a fallback for when it wasn't set there.
+  const [accessToken, setAccessToken] = useState(() => loadSettings().chatAccessToken)
   const [needsAccess, setNeedsAccess] = useState(false)
   const chatIdRef = useRef<string>("")
   const abortRef = useRef<AbortController | null>(null)
@@ -153,13 +155,16 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
   const saveAccess = (token: string) => {
     setAccessToken(token)
     setNeedsAccess(false)
+    // Persist it so it's already there next time — not just for this open panel.
+    saveSettings({ ...loadSettings(), chatAccessToken: token })
   }
 
   if (!open) return null
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-background/60 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      {/* Click-outside-to-close only — no dimming/blur, the dashboard stays fully visible. */}
+      <div className="fixed inset-0 z-40" onClick={onClose} aria-hidden />
       <aside
         role="dialog"
         aria-label="Chat with Claude about these metrics"
