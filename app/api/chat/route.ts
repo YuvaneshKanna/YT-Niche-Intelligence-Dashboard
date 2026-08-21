@@ -296,7 +296,20 @@ export async function POST(request: NextRequest) {
   }
 
   if (!upstream.ok || !upstream.body) {
-    const detail = await upstream.text().catch(() => "")
+    const raw = await upstream.text().catch(() => "")
+
+    // A Cloudflare Quick Tunnel returns its own HTML error page (not the
+    // bridge's) when the tunnel is up but nothing is listening on the other
+    // end — dumping that page verbatim just buries the one useful fact.
+    // Recognise it and say what actually broke instead.
+    const isTunnelErrorPage = raw.trimStart().startsWith("<") && /cloudflare|cf-error/i.test(raw)
+    const detail = isTunnelErrorPage
+      ? "The Cloudflare tunnel answered, but nothing is listening behind it — " +
+        "the bridge (`node server.mjs`) on your machine isn't running right now. " +
+        "Start it again and keep that terminal window open; the tunnel alone " +
+        "being up is not enough."
+      : raw.slice(0, 500)
+
     return json(
       { error: `Sandbox bridge returned ${upstream.status}. ${detail}`.trim(), code: "SANDBOX_ERROR" },
       502
