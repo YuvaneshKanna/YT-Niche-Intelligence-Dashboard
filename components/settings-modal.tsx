@@ -161,12 +161,21 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           <section>
             <Field
               label="Chat access token (optional)"
-              hint="Only needed if the deployment sets CHAT_ACCESS_TOKEN."
+              hint={
+                settings.chatMode === "subscription"
+                  ? "Gates who can use chat at all. Recommended in subscription mode: the bridge spends YOUR Claude limits, so without this anyone who finds the dashboard URL can use them. Set CHAT_ACCESS_TOKEN in Vercel to the same value. Leave blank if you have not set it."
+                  : "Gates who can use chat at all. Usually unnecessary in API-key mode, since each person supplies their own key — unless the deployment also sets a fallback ANTHROPIC_API_KEY. Leave blank if you have not set CHAT_ACCESS_TOKEN in Vercel."
+              }
               value={settings.chatAccessToken}
               onChange={(v) => set("chatAccessToken", v)}
               secret
               revealed={reveal.access}
               onToggleReveal={() => setReveal((r) => ({ ...r, access: !r.access }))}
+              placeholder="leave blank unless CHAT_ACCESS_TOKEN is set"
+              onGenerate={() => {
+                set("chatAccessToken", generateSecret())
+                setReveal((r) => ({ ...r, access: true }))
+              }}
             />
           </section>
 
