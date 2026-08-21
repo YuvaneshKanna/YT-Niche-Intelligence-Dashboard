@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from "react"
 import Link from "next/link"
-import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, BarChart3 } from "lucide-react"
+import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, BarChart3, Settings as SettingsIcon } from "lucide-react"
 import * as XLSX from "xlsx"
 import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
 import { SimilarChannelCard } from "@/components/similar-channel-card"
 import { UserSelectModal } from "@/components/user-select-modal"
+import { SettingsModal } from "@/components/settings-modal"
 
 import {
   type Channel,
@@ -119,6 +120,7 @@ export function Dashboard() {
       if (!selectedChannelId) setSelectedChannelId(initialChannels[0].id)
     }
   }, [initialChannels])
+  const [showSettings, setShowSettings] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [showUnavailable, setShowUnavailable] = useState(false)
   const [showHandleDiff, setShowHandleDiff] = useState(false)
@@ -597,6 +599,14 @@ export function Dashboard() {
               <BarChart3 className="w-3.5 h-3.5 flex-shrink-0" />
               Niche Breakdown
             </Link>
+            <button
+              onClick={() => setShowSettings(true)}
+              title="Settings"
+              aria-label="Settings"
+              className="flex-shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+            >
+              <SettingsIcon className="w-3.5 h-3.5" />
+            </button>
           </nav>
         </div>
 
@@ -1493,6 +1503,7 @@ export function Dashboard() {
       )}
 
       <UserSelectModal onSelect={(user) => setCurrentUser(user)} />
+      <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
     </div >
   )
 }

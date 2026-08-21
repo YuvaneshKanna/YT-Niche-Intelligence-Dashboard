@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, ArrowLeft, ChevronRight, FileText, RefreshCw, Sparkles, Youtube } from "lucide-react"
+import { AlertTriangle, ArrowLeft, ChevronRight, FileText, RefreshCw, Settings, Sparkles, Youtube } from "lucide-react"
 import type {
   ChannelRollup,
   MetricsPayload,
@@ -15,6 +15,7 @@ import { OutlierTable } from "./outlier-table"
 import { SERIES, TrendLegend, ViewsTrend, type TrendMode } from "./views-trend"
 import { InsightsDrawer } from "./insights-drawer"
 import { ChatPanel } from "./chat-panel"
+import { SettingsModal } from "@/components/settings-modal"
 
 const RANGES: RangeKey[] = ["7d", "14d", "30d"]
 const RANGE_LABEL: Record<RangeKey, string> = { "7d": "7 days", "14d": "14 days", "30d": "30 days" }
@@ -47,6 +48,7 @@ export function NicheMetrics() {
   const [showWarnings, setShowWarnings] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
   const [showChat, setShowChat] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
 
   const load = (r: RangeKey, refresh = false) => {
     setLoading(true)
@@ -150,6 +152,13 @@ export function NicheMetrics() {
             className="rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            aria-label="Settings"
+            className="rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Settings className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => setShowInsights(true)}
@@ -363,6 +372,8 @@ export function NicheMetrics() {
         onClose={() => setShowInsights(false)}
         nicheGroup={selectedGroup}
       />
+
+      <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
 
       <ChatPanel
         open={showChat}

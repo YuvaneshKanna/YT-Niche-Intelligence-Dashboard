@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { ArrowUp, Lock, Sparkles, Square, X } from "lucide-react"
 import type { RangeKey } from "@/lib/metrics/types"
+import { chatHeaders, loadSettings } from "@/lib/settings"
 
 interface Turn {
   role: "user" | "assistant"
@@ -16,8 +17,6 @@ interface ChatPanelProps {
   range: RangeKey
   nicheGroup: string | null
 }
-
-const ACCESS_KEY = "yt-dashboard-chat-access"
 
 const SUGGESTIONS = [
   "Which niche group has the strongest momentum right now, and is it one channel carrying it?",
@@ -44,12 +43,6 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(ACCESS_KEY)
-      if (stored) setAccessToken(stored)
-    } catch {
-      // Private browsing or blocked storage — the gate prompt still works.
-    }
     if (!chatIdRef.current) {
       chatIdRef.current =
         globalThis.crypto?.randomUUID?.() ?? `chat-${Date.now()}-${Math.random()}`
@@ -103,6 +96,8 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          // Read at send time so a Settings change applies without a reload.
+          ...chatHeaders(loadSettings()),
           ...(accessToken ? { "x-chat-access": accessToken } : {}),
         },
         body: JSON.stringify({ question: q, chatId: chatIdRef.current, range }),
@@ -157,11 +152,6 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
 
   const saveAccess = (token: string) => {
     setAccessToken(token)
-    try {
-      localStorage.setItem(ACCESS_KEY, token)
-    } catch {
-      // Not persisting is fine — the token stays in memory for this session.
-    }
     setNeedsAccess(false)
   }
 
@@ -279,8 +269,7 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
             )}
           </div>
           <p className="mt-1.5 text-[10px] text-muted-foreground">
-            Enter to send, Shift+Enter for a new line. Runs on your Claude subscription via the
-            sandbox bridge.
+            Enter to send, Shift+Enter for a new line. Backend is chosen in Settings.
           </p>
         </div>
       </aside>
