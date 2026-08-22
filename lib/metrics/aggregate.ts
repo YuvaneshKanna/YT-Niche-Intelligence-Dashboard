@@ -766,11 +766,25 @@ export function aggregate(input: AggregateInput): AggregateResult {
     const vpd = observedDays > 0 ? Math.round(gain / observedDays) : null
 
     // Acceleration: compare the video's own daily gains, early vs late.
-    const vidDeltas = deltas
+    const vidDeltaRows = deltas
       .filter((d) => d.videoId === videoId)
       .sort((a, b) => a.date.localeCompare(b.date))
-      .map((d) => d.gain)
-    const accel = halfOverHalfChange(vidDeltas)
+    const accel = halfOverHalfChange(vidDeltaRows.map((d) => d.gain))
+
+    // This video's own daily-gain trend, for the channel->videos comparison
+    // chart. A video is always one format, so there's nothing to split —
+    // shortsViews/longFormViews stay unused; totalViews carries the gain.
+    // Same 7-day retention caveat as everything else video-level: this thins
+    // out beyond fullCoverageFrom unless the video is an OUTLIER/RECENT_UPLOAD.
+    const trend: TrendPoint[] = vidDeltaRows.map((d) => ({
+      date: d.date,
+      totalViews: Math.round(d.gain),
+      shortsViews: 0,
+      longFormViews: 0,
+      splitIsPartial: d.date < fullCoverageFrom,
+      channelCount: 1,
+      rosterChanged: false,
+    }))
 
     const groupKey = last.nicheGroup || UNGROUPED
     const groupTotal = groupGain.get(groupKey) ?? 0
@@ -795,6 +809,7 @@ export function aggregate(input: AggregateInput): AggregateResult {
       dominancePct: round(safeDiv(gain, groupTotal) * 100, 2),
       engagementRatePct: round(safeDiv(last.likes + last.comments, last.views) * 100, 2),
       daysObserved: observedDays,
+      trend,
     })
   }
 

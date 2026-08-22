@@ -374,11 +374,19 @@ interface CompareTrendProps {
   entries: CompareTooltipEntry[]
   /** Entity key to draw thicker/opaque — the group or channel currently focused elsewhere on the page. */
   focusKey?: string | null
+  /** Keys hidden via legend click — one dominant line (e.g. a viral spike) can flatten every
+   *  other one on a linear axis, so clicking it off is the fastest way to see the rest. Hidden
+   *  lines aren't rendered at all, which is what lets the Y-axis auto-rescale around what's left. */
+  hiddenKeys?: Set<string>
+  /** Manual Y-axis ceiling, for zooming past a spike without hiding it. null/undefined = auto. */
+  yMax?: number | null
   height?: number | string
 }
 
-/** Overlays several entities' total-views trends on one chart — niche groups against each other, or channels within a group against each other. Always total views: stacking N entities × 2 formats would be unreadable. */
-export function CompareTrend({ data, entries, focusKey, height = 300 }: CompareTrendProps) {
+/** Overlays several entities' total-views trends on one chart — niche groups against each other, channels within a group, or videos within a channel/group. Always total views: stacking N entities × 2 formats would be unreadable. */
+export function CompareTrend({ data, entries, focusKey, hiddenKeys, yMax, height = 300 }: CompareTrendProps) {
+  const visible = hiddenKeys ? entries.filter((e) => !hiddenKeys.has(e.key)) : entries
+
   if (data.length === 0 || entries.length === 0) {
     return (
       <div
@@ -410,14 +418,18 @@ export function CompareTrend({ data, entries, focusKey, height = 300 }: CompareT
             axisLine={false}
             tickLine={false}
             width={48}
+            domain={[0, yMax ?? "auto"]}
+            allowDataOverflow={yMax != null}
           />
 
           <Tooltip
-            content={<CompareTooltip entries={entries} />}
+            content={<CompareTooltip entries={visible} />}
             cursor={{ stroke: "var(--muted-foreground)", strokeDasharray: "3 3" }}
           />
 
-          {entries.map((e) => {
+          {/* Hidden entries render nothing at all (not just dimmed) — that's what lets the
+              YAxis's own auto domain shrink to fit whatever is left on screen. */}
+          {visible.map((e) => {
             const isFocus = focusKey ? e.key === focusKey : false
             return (
               <Line
@@ -439,29 +451,48 @@ export function CompareTrend({ data, entries, focusKey, height = 300 }: CompareT
   )
 }
 
-/** Legend for the comparison chart — the focused entity (if any) reads bold, matching the thicker line. */
+/**
+ * Legend for the comparison chart — the focused entity (if any) reads bold, matching the
+ * thicker line. Each entry is a toggle: click one to hide that line (and free the Y-axis
+ * from having to fit it), click again to bring it back.
+ */
 export function CompareLegend({
   entries,
   focusKey,
+  hiddenKeys,
+  onToggle,
 }: {
   entries: CompareTooltipEntry[]
   focusKey?: string | null
+  hiddenKeys?: Set<string>
+  onToggle?: (key: string) => void
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      {entries.map((e) => (
-        <span
-          key={e.key}
-          className={`flex items-center gap-1.5 text-[11px] ${
-            focusKey && e.key === focusKey
-              ? "font-semibold text-foreground"
-              : "text-muted-foreground"
-          }`}
-        >
-          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: e.color }} />
-          {e.label}
-        </span>
-      ))}
+      {entries.map((e) => {
+        const hidden = hiddenKeys?.has(e.key) ?? false
+        return (
+          <button
+            key={e.key}
+            type="button"
+            onClick={() => onToggle?.(e.key)}
+            title={hidden ? `Show ${e.label}` : `Hide ${e.label}`}
+            className={`flex items-center gap-1.5 text-[11px] transition-opacity ${
+              hidden
+                ? "text-muted-foreground/40 line-through"
+                : focusKey && e.key === focusKey
+                  ? "font-semibold text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ backgroundColor: hidden ? "var(--muted-foreground)" : e.color }}
+            />
+            {e.label}
+          </button>
+        )
+      })}
     </div>
   )
 }

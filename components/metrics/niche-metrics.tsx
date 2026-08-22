@@ -28,9 +28,6 @@ import {
   CompareLegend,
   CompareTrend,
   SERIES,
-  TrendLegend,
-  ViewsTrend,
-  type TrendMode,
 } from "./views-trend"
 import { InsightsDrawer } from "./insights-drawer"
 import { ChatPanel } from "./chat-panel"
@@ -85,17 +82,33 @@ export function NicheMetrics() {
   const [error, setError] = useState<{ message: string; code?: string } | null>(null)
 
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null)
+  // A channel is now only ever a NARROWING FILTER on the videos comparison —
+  // it never puts the channel's own long-form-vs-shorts split on screen.
+  // That split is exactly the "compare formats against each other" the chart
+  // must never do; the channel's own trend already lives in the "channels"
+  // scope as one line among its siblings.
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
-  // What the trend chart compares when no single channel is drilled into:
-  // "groups" overlays every niche group, "channels" overlays the channels
-  // inside the selected group. Selecting a channel always wins over either.
-  const [chartScope, setChartScope] = useState<"groups" | "channels">("groups")
-  const [trendMode, setTrendMode] = useState<TrendMode>("split")
+  // What the trend chart compares: "groups" overlays every niche group,
+  // "channels" overlays the channels inside the selected group, "videos"
+  // overlays videos (whole group, or just selectedChannel's if set) — one
+  // format at a time, chosen by videoType below, never both at once.
+  const [chartScope, setChartScope] = useState<"groups" | "channels" | "videos">("groups")
   const [videoType, setVideoType] = useState<VideoType>("LONG_FORM")
+  // Legend-click-to-hide and a manual Y ceiling — both exist so one dominant
+  // line (a viral spike) doesn't flatten every other line on the same chart.
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set())
+  const [yMaxOverride, setYMaxOverride] = useState<number | null>(null)
   const [showWarnings, setShowWarnings] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
   const [showChat, setShowChat] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+
+  // A new comparison set makes old hidden/zoom choices stop meaning anything
+  // sensible — start clean whenever what's being compared changes.
+  useEffect(() => {
+    setHiddenKeys(new Set())
+    setYMaxOverride(null)
+  }, [chartScope, selectedGroup, selectedChannel, videoType])
 
   const load = (r: RangeKey, refresh = false) => {
     setLoading(true)
@@ -202,13 +215,55 @@ export function NicheMetrics() {
   )
   const channelsOmitted = groupChannels.length - channelCompareSelection.length
 
-  // ── Ranked video list for the drilled-into channel (deepest level) ──
-  const channelVideosRanked = useMemo(() => {
-    if (!data || !channel) return []
-    return data.videos
-      .filter((v) => v.handle === channel.handle && v.videoType === videoType)
-      .sort((a, b) => b.views - a.views)
-  }, [data, channel, videoType])
+  // ── Video-vs-video comparison (chartScope "videos") ──
+  // Whole group by default; narrowed to one channel's videos when selectedChannel
+  // is set. Always one format at a time — mixing long-form and shorts videos
+  // into the same set of comparison lines is exactly the merge that's banned.
+  const videoCandidates = useMemo(() => {
+    if (!data || !group) return []
+    return data.videos.filter(
+      (v) =>
+        v.videoType === videoType &&
+        (selectedChannel ? v.handle === selectedChannel : groupChannels.some((c) => c.handle === v.handle))
+    )
+  }, [data, group, groupChannels, selectedChannel, videoType])
+
+  const videosRanked = useMemo(
+    () => [...videoCandidates].sort((a, b) => b.views - a.views),
+    [videoCandidates]
+  )
+
+  const allVideoKeysSorted = useMemo(
+    () => [...videoCandidates.map((v) => v.videoId)].sort(),
+    [videoCandidates]
+  )
+  const videoCompareSelection = useMemo(
+    () =>
+      topEntities(
+        videoCandidates.map((v) => ({ key: v.videoId, delta: v.viewsPerDay ?? 0, trend: v.trend })),
+        null,
+        COMPARE_MAX_SERIES
+      ),
+    [videoCandidates]
+  )
+  const videoTitleByKey = useMemo(
+    () => new Map(videoCandidates.map((v) => [v.videoId, v.title])),
+    [videoCandidates]
+  )
+  const videoCompareEntries = useMemo(
+    () =>
+      videoCompareSelection.map((e) => {
+        const title = videoTitleByKey.get(e.key) ?? e.key
+        return {
+          key: e.key,
+          label: title.length > 26 ? `${title.slice(0, 26)}…` : title,
+          color: colorForEntity(allVideoKeysSorted, e.key),
+        }
+      }),
+    [videoCompareSelection, videoTitleByKey, allVideoKeysSorted]
+  )
+  const videoCompareRows = useMemo(() => buildCompareRows(videoCompareSelection), [videoCompareSelection])
+  const videosOmitted = videoCandidates.length - videoCompareSelection.length
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
@@ -344,20 +399,22 @@ export function NicheMetrics() {
 
               {/* ── 3. Trend + drill-down · 296px ── */}
               {/*
-                Three levels live in this one block, breadcrumb-driven:
-                all niche groups compared -> channels within one group
-                compared -> a single channel's own trend + its videos ranked
-                high to low. Compare charts are always total views — N
-                entities x 2 formats each would be unreadable; the by-format
-                split only applies once you're down to one channel.
+                Three levels, breadcrumb-driven: all niche groups compared ->
+                channels within one group compared -> videos compared (whole
+                group, or narrowed to one channel). Every level is always ONE
+                format at a time (videoType below) or total-views-only for
+                groups/channels — long-form and shorts never share an axis.
+                A Channels/Videos radio picks the compare unit within a group;
+                a channel click just narrows "videos" to that channel instead
+                of showing its own format split.
               */}
               <section className="flex h-[296px] flex-shrink-0 gap-3">
                 <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-border bg-card p-3">
-                  <div className="mb-1 flex flex-shrink-0 items-center justify-between gap-3">
+                  <div className="mb-1 flex flex-shrink-0 flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
                     <div className="min-w-0">
                       <Breadcrumb
                         group={group.nicheGroup}
-                        channel={channel?.handle ?? null}
+                        channel={chartScope === "videos" ? selectedChannel : null}
                         scope={chartScope}
                         onShowGroups={() => {
                           setChartScope("groups")
@@ -368,80 +425,139 @@ export function NicheMetrics() {
                           setSelectedChannel(null)
                         }}
                       />
-                      {!channel && chartScope === "groups" && groupsOmitted > 0 && (
+                      {chartScope === "groups" && groupsOmitted > 0 && (
                         <p className="mt-0.5 text-[10px] text-muted-foreground">
                           +{groupsOmitted} more not shown, sorted by views gained
                         </p>
                       )}
-                      {!channel && chartScope === "channels" && channelsOmitted > 0 && (
+                      {chartScope === "channels" && channelsOmitted > 0 && (
                         <p className="mt-0.5 text-[10px] text-muted-foreground">
                           +{channelsOmitted} more not shown, sorted by views gained
                         </p>
                       )}
-                    </div>
-                    <div className="flex flex-shrink-0 items-center gap-3">
-                      {channel ? (
-                        <>
-                          <TrendLegend mode={trendMode} />
-                          <div className="flex rounded-lg border border-border p-0.5">
-                            {(["split", "total"] as TrendMode[]).map((m) => (
-                              <button
-                                key={m}
-                                onClick={() => setTrendMode(m)}
-                                className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
-                                  trendMode === m
-                                    ? "bg-primary text-primary-foreground"
-                                    : "text-muted-foreground hover:text-foreground"
-                                }`}
-                              >
-                                {m === "split" ? "By format" : "All formats"}
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      ) : (
-                        <CompareLegend
-                          entries={chartScope === "groups" ? groupCompareEntries : channelCompareEntries}
-                          focusKey={chartScope === "groups" ? selectedGroup : selectedChannel}
-                        />
+                      {chartScope === "videos" && videosOmitted > 0 && (
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          +{videosOmitted} more not shown, sorted by views/day
+                        </p>
                       )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
+                      {chartScope !== "groups" && (
+                        <div className="flex rounded-lg border border-border p-0.5">
+                          {(["channels", "videos"] as const).map((s) => (
+                            <button
+                              key={s}
+                              onClick={() => {
+                                setChartScope(s)
+                                if (s === "channels") setSelectedChannel(null)
+                              }}
+                              className={`rounded-md px-2.5 py-1 text-[11px] capitalize transition-colors ${
+                                chartScope === s
+                                  ? "bg-primary text-primary-foreground"
+                                  : "text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {chartScope === "videos" && (
+                        <div className="flex rounded-lg border border-border p-0.5">
+                          {(["LONG_FORM", "SHORTS"] as VideoType[]).map((t) => (
+                            <button
+                              key={t}
+                              onClick={() => setVideoType(t)}
+                              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] transition-colors ${
+                                videoType === t
+                                  ? "bg-primary text-primary-foreground"
+                                  : "text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              <span
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{ backgroundColor: SERIES[t].color }}
+                              />
+                              {SERIES[t].label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <YZoomControl value={yMaxOverride} onChange={setYMaxOverride} />
+
+                      <CompareLegend
+                        entries={
+                          chartScope === "groups"
+                            ? groupCompareEntries
+                            : chartScope === "channels"
+                              ? channelCompareEntries
+                              : videoCompareEntries
+                        }
+                        focusKey={
+                          chartScope === "groups" ? selectedGroup : chartScope === "channels" ? selectedChannel : null
+                        }
+                        hiddenKeys={hiddenKeys}
+                        onToggle={(key) =>
+                          setHiddenKeys((prev) => {
+                            const next = new Set(prev)
+                            next.has(key) ? next.delete(key) : next.add(key)
+                            return next
+                          })
+                        }
+                      />
                     </div>
                   </div>
 
                   <div className="min-h-0 flex-1">
-                    {channel ? (
-                      <ViewsTrend data={channel.trend} mode={trendMode} height="100%" />
-                    ) : chartScope === "groups" ? (
+                    {chartScope === "groups" ? (
                       <CompareTrend
                         data={groupCompareRows}
                         entries={groupCompareEntries}
                         focusKey={selectedGroup}
+                        hiddenKeys={hiddenKeys}
+                        yMax={yMaxOverride}
                         height="100%"
                       />
-                    ) : (
+                    ) : chartScope === "channels" ? (
                       <CompareTrend
                         data={channelCompareRows}
                         entries={channelCompareEntries}
                         focusKey={selectedChannel}
+                        hiddenKeys={hiddenKeys}
+                        yMax={yMaxOverride}
+                        height="100%"
+                      />
+                    ) : (
+                      <CompareTrend
+                        data={videoCompareRows}
+                        entries={videoCompareEntries}
+                        hiddenKeys={hiddenKeys}
+                        yMax={yMaxOverride}
                         height="100%"
                       />
                     )}
                   </div>
                 </div>
 
-                {/* Drill-down list — niche groups, or channels in the selected group, or that channel's videos */}
+                {/* Drill-down list — niche groups, channels in the selected group, or videos in the current comparison set */}
                 <div className="flex w-[340px] flex-shrink-0 flex-col rounded-xl border border-border bg-card">
                   <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-3 py-2">
                     <p className="truncate text-[10px] uppercase tracking-widest text-muted-foreground">
-                      {channel
-                        ? `Videos (${channelVideosRanked.length}) · ${SERIES[videoType].label}`
-                        : chartScope === "groups"
-                          ? `Niche groups (${data.groups.length})`
-                          : `Channels (${groupChannels.length})`}
+                      {chartScope === "groups"
+                        ? `Niche groups (${data.groups.length})`
+                        : chartScope === "channels"
+                          ? `Channels (${groupChannels.length})`
+                          : `Videos (${videosRanked.length}) · ${SERIES[videoType].label}`}
                     </p>
-                    {channel && (
+                    {chartScope === "videos" && selectedChannel && (
                       <button
-                        onClick={() => setSelectedChannel(null)}
+                        onClick={() => {
+                          setChartScope("channels")
+                          setSelectedChannel(null)
+                        }}
                         className="flex flex-shrink-0 items-center gap-1 text-[11px] text-primary hover:underline"
                       >
                         <ArrowLeft className="h-3 w-3" />
@@ -450,37 +566,7 @@ export function NicheMetrics() {
                     )}
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-                    {channel ? (
-                      channelVideosRanked.length === 0 ? (
-                        <p className="p-3 text-center text-[11px] text-muted-foreground">
-                          No {SERIES[videoType].label.toLowerCase()} videos in this range
-                        </p>
-                      ) : (
-                        channelVideosRanked.map((v, i) => (
-                          <a
-                            key={v.videoId}
-                            href={v.videoUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-muted/40"
-                          >
-                            <span className="w-4 flex-shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                              {i + 1}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-[11px] font-medium text-foreground">
-                                {v.title}
-                              </p>
-                              <p className="truncate text-[10px] text-muted-foreground">
-                                {fmt(v.views)} views
-                                {v.viewsPerDay !== null ? ` · ${fmt(v.viewsPerDay)}/d` : ""}
-                              </p>
-                            </div>
-                            <ExternalLink className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-                          </a>
-                        ))
-                      )
-                    ) : chartScope === "groups" ? (
+                    {chartScope === "groups" ? (
                       [...data.groups]
                         .sort((a, b) => b.totalViewsDelta - a.totalViewsDelta)
                         .map((g) => (
@@ -511,15 +597,15 @@ export function NicheMetrics() {
                             </p>
                           </button>
                         ))
-                    ) : (
+                    ) : chartScope === "channels" ? (
                       groupChannels.map((c) => (
                         <button
                           key={c.handle}
-                          onClick={() => setSelectedChannel(c.handle)}
-                          aria-pressed={c.handle === selectedChannel}
-                          className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
-                            c.handle === selectedChannel ? "bg-primary/15" : "hover:bg-muted/40"
-                          }`}
+                          onClick={() => {
+                            setSelectedChannel(c.handle)
+                            setChartScope("videos")
+                          }}
+                          className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-muted/40"
                         >
                           <div className="flex min-w-0 items-center gap-2">
                             <span
@@ -547,6 +633,32 @@ export function NicheMetrics() {
                             <ChevronRight className="h-3 w-3 text-muted-foreground" />
                           </div>
                         </button>
+                      ))
+                    ) : videosRanked.length === 0 ? (
+                      <p className="p-3 text-center text-[11px] text-muted-foreground">
+                        No {SERIES[videoType].label.toLowerCase()} videos in this range
+                      </p>
+                    ) : (
+                      videosRanked.map((v, i) => (
+                        <a
+                          key={v.videoId}
+                          href={v.videoUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-muted/40"
+                        >
+                          <span className="w-4 flex-shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                            {i + 1}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[11px] font-medium text-foreground">{v.title}</p>
+                            <p className="truncate text-[10px] text-muted-foreground">
+                              {v.handle} · {fmt(v.views)} views
+                              {v.viewsPerDay !== null ? ` · ${fmt(v.viewsPerDay)}/d` : ""}
+                            </p>
+                          </div>
+                          <ExternalLink className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                        </a>
                       ))
                     )}
                   </div>
@@ -731,6 +843,41 @@ function GroupCard({
   )
 }
 
+/**
+ * Manual Y-axis ceiling for the compare charts. Complements clicking a legend
+ * entry off: that hides a dominant line entirely, this lets you cap the axis
+ * without losing the line from the chart at all.
+ */
+function YZoomControl({
+  value,
+  onChange,
+}: {
+  value: number | null
+  onChange: (v: number | null) => void
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-[10px] text-muted-foreground">Y max</span>
+      <input
+        type="number"
+        min={0}
+        placeholder="Auto"
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        className="w-[72px] rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] tabular-nums text-foreground outline-none focus:border-primary/50"
+      />
+      {value != null && (
+        <button
+          onClick={() => onChange(null)}
+          className="text-[10px] text-primary hover:underline"
+        >
+          Reset
+        </button>
+      )}
+    </div>
+  )
+}
+
 function StatTile({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <div className="flex h-full flex-col justify-between overflow-hidden rounded-xl border border-border bg-card p-3">
@@ -751,12 +898,12 @@ function Breadcrumb({
 }: {
   group: string
   channel: string | null
-  scope: "groups" | "channels"
+  scope: "groups" | "channels" | "videos"
   onShowGroups: () => void
   onShowChannels: () => void
 }) {
-  const atGroups = scope === "groups" && !channel
-  const atChannels = scope === "channels" && !channel
+  const atGroups = scope === "groups"
+  const atChannels = scope !== "groups" && !channel
 
   return (
     <div className="flex items-center gap-1.5 text-xs">

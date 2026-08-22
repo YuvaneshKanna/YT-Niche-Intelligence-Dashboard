@@ -157,6 +157,8 @@ export interface VideoRollup {
   dominancePct: number
   engagementRatePct: number
   daysObserved: number
+  /** This video's own daily-gain trend, for the channel->videos comparison chart. */
+  trend: TrendPoint[]
 }
 
 /** One component of a composite score, with its provenance. */
