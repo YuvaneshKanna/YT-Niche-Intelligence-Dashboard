@@ -1,0 +1,13 @@
+# docker compose up -d --build
+#
+# Reads secrets from .env (copy .env.example). The OAuth token is passed at run
+# time and is never baked into the image.
+
+services:
+  bridge:
+    build: .
+    container_name: niche-chat-bridge
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${PORT:-8787}:8787"

@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useMemo, useRef, useEffect } from "react"
-import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star } from "lucide-react"
+import Link from "next/link"
+import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, Settings as SettingsIcon } from "lucide-react"
 import * as XLSX from "xlsx"
 import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
@@ -13,6 +14,8 @@ import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
 import { SimilarChannelCard } from "@/components/similar-channel-card"
 import { UserSelectModal } from "@/components/user-select-modal"
+import { SettingsModal } from "@/components/settings-modal"
+import { PageNav } from "@/components/page-nav"
 
 import {
   type Channel,
@@ -118,6 +121,7 @@ export function Dashboard() {
       if (!selectedChannelId) setSelectedChannelId(initialChannels[0].id)
     }
   }, [initialChannels])
+  const [showSettings, setShowSettings] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [showUnavailable, setShowUnavailable] = useState(false)
   const [showHandleDiff, setShowHandleDiff] = useState(false)
@@ -572,16 +576,26 @@ export function Dashboard() {
     <div className="flex h-screen bg-background overflow-hidden">
       {/* ── LEFT SIDEBAR ── */}
       <aside className="w-[320px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden">
-        {/* Logo */}
-        <div className="flex-shrink-0 h-14 flex items-center px-5 border-b border-sidebar-border">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <Youtube className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <h1 className="text-lg font-bold text-sidebar-foreground">
-              YT Niche Overview
-            </h1>
+        {/* Logo + page picker */}
+        {/*
+          The page picker is a dropdown, not a row of tabs — this is headed
+          for 5-8 pages, and a tab strip that wide never fits the 320px
+          sidebar. Settings gets its own labeled button so it doesn't read
+          as just another nav item.
+        */}
+        <div className="flex-shrink-0 h-14 flex items-center gap-1.5 px-3 border-b border-sidebar-border">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+            <Youtube className="w-5 h-5 text-primary-foreground" />
           </div>
+          <PageNav />
+          <button
+            onClick={() => setShowSettings(true)}
+            aria-label="Open settings"
+            className="ml-auto flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-sidebar-border px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+          >
+            <SettingsIcon className="w-3.5 h-3.5" />
+            Settings
+          </button>
         </div>
 
         {/* Search */}
@@ -1477,6 +1491,7 @@ export function Dashboard() {
       )}
 
       <UserSelectModal onSelect={(user) => setCurrentUser(user)} />
+      <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
     </div >
   )
 }

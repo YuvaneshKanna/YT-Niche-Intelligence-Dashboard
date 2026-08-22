@@ -1,0 +1,406 @@
+import { google } from "googleapis"
+import type { ChannelSnapshot, RecordType, VideoSnapshot, VideoType } from "./types"
+
+// Reads the Stage 2 output spreadsheet (YT Channel Metrics). This is a
+// different spreadsheet from the Stage 1 roster that the main dashboard uses,
+// so it needs its own env var — and the service account must be shared on it.
+
+const CHANNEL_TAB = "Sheet4_Daily_Channel_Snapshot"
+const VIDEO_TAB = "All_Video_Snapshots"
+
+export class MetricsConfigError extends Error {}
+
+function getAuthClient() {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
+  const key = process.env.GOOGLE_PRIVATE_KEY
+
+  if (!email || !key) {
+    throw new MetricsConfigError(
+      "GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY must be set."
+    )
+  }
+
+  return new google.auth.GoogleAuth({
+    credentials: { client_email: email, private_key: key.replace(/\\n/g, "\n") },
+    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+  })
+}
+
+function metricsSheetId(): string {
+  const id = process.env.GOOGLE_METRICS_SHEET_ID
+  if (!id) {
+    throw new MetricsConfigError(
+      "GOOGLE_METRICS_SHEET_ID is not set. Add it in Vercel and share the " +
+        "YT Channel Metrics spreadsheet with the service account."
+    )
+  }
+  return id
+}
+
+const num = (v: unknown): number => {
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0
+  const parsed = parseFloat(String(v ?? "").replace(/,/g, ""))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+const str = (v: unknown): string => String(v ?? "").trim()
+
+// Google Sheets counts days from 1899-12-30 (serial 1 == 1899-12-31, which
+// preserves the historical 1900 leap-year bug).
+const SHEETS_EPOCH_MS = Date.UTC(1899, 11, 30)
+
+/** Plausible range for a snapshot date; anything outside is treated as garbage. */
+const MIN_YEAR = 2000
+const MAX_YEAR = 2100
+
+const toIsoDay = (d: Date): string => {
+  const year = d.getUTCFullYear()
+  if (year < MIN_YEAR || year > MAX_YEAR) return ""
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Normalises the shapes Sheets hands back into `YYYY-MM-DD`.
+ *
+ * `valueRenderOption: UNFORMATTED_VALUE` returns a date-formatted cell as a
+ * *serial number* (days since 1899-12-30), not a string. Passing that to
+ * `new Date()` parses it as a calendar YEAR — 46234 becomes the year 46234,
+ * whose ISO form ("+046234-01-01") sorts BELOW a normal date string and
+ * silently filtered every row out of range. Serial numbers are converted
+ * explicitly, and the string fallback is bounded to a plausible year range so
+ * a stray number can never masquerade as a date again.
+ */
+export function normaliseDate(raw: unknown): string {
+  if (raw === null || raw === undefined || raw === "") return ""
+
+  // Serial number, either as a JS number or a bare numeric string.
+  const asNumber = typeof raw === "number" ? raw : Number(str(raw))
+  if (Number.isFinite(asNumber) && String(raw).trim() !== "" && /^\d+(\.\d+)?$/.test(str(raw))) {
+    // Serials below ~36525 predate 2000; treat those as out of range too.
+    const d = new Date(SHEETS_EPOCH_MS + Math.floor(asNumber) * 86_400_000)
+    return Number.isNaN(d.getTime()) ? "" : toIsoDay(d)
+  }
+
+  const s = str(raw)
+  if (!s) return ""
+
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (iso) return iso[1]
+
+  const parsed = new Date(s)
+  if (!Number.isNaN(parsed.getTime())) return toIsoDay(parsed)
+
+  return ""
+}
+
+/**
+ * Duration cells are durations, not text. `UNFORMATTED_VALUE` returns them as
+ * a fraction of a day (0.006493… == 9m21s), which rendered raw in the table.
+ * A value that is already "H:MM:SS" is passed through untouched.
+ */
+export function normaliseDuration(raw: unknown): string {
+  if (raw === null || raw === undefined || raw === "") return ""
+
+  const s = str(raw)
+  if (/^\d+:\d{2}(:\d{2})?$/.test(s)) return s
+
+  const asNumber = typeof raw === "number" ? raw : Number(s)
+  if (!Number.isFinite(asNumber) || asNumber < 0) return s
+
+  const total = Math.round(asNumber * 86_400)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = total % 60
+  return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+}
+
+// The two scoring vocabularies are disjoint, which makes them self-identifying.
+const AGE_TAGS = new Set(["FRESH", "SUSTAINED", "LONG_TAIL", "EVERGREEN"])
+const REASONS = new Set([
+  "BREAKOUT",
+  "FAST_MOVER",
+  "HIGH_ENGAGEMENT",
+  "VIRAL",
+  "EARLY_SIGNAL",
+  "NORMAL",
+])
+
+/**
+ * Returns {reason, ageTag} correctly assigned regardless of column order.
+ *
+ * The Stage 2 `Write - All_Video_Snapshots` node has its mappings crossed —
+ * `Outlier_Reason` receives `outlier_age_tag` and vice versa — so the sheet's
+ * Outlier_Reason column holds FRESH/EVERGREEN/… and Outlier_Age_Tag holds
+ * VIRAL/BREAKOUT/…. (`Write Sheet1_Outlier_Videos` maps them correctly.)
+ *
+ * Rather than depend on that being fixed upstream, classify by value: the
+ * vocabularies do not overlap, so whichever column holds an age tag IS the
+ * age tag. This reads existing rows correctly today and keeps reading them
+ * correctly once the workflow is repaired.
+ */
+export function resolveOutlierLabels(
+  reasonCell: unknown,
+  ageCell: unknown
+): { reason: string; ageTag: string } {
+  const a = str(reasonCell).toUpperCase()
+  const b = str(ageCell).toUpperCase()
+
+  if (AGE_TAGS.has(a) && REASONS.has(b)) return { reason: b, ageTag: a }
+  if (REASONS.has(a) && AGE_TAGS.has(b)) return { reason: a, ageTag: b }
+
+  // Only one side recognisable — trust the one we can classify.
+  if (AGE_TAGS.has(a)) return { reason: b, ageTag: a }
+  if (AGE_TAGS.has(b)) return { reason: a, ageTag: b }
+
+  return { reason: a, ageTag: b }
+}
+
+/**
+ * Canonical form of a header name: lowercase, no spaces/underscores/hyphens.
+ * "Snapshot_Date", "Snapshot Date" and "snapshotdate" all collapse to the
+ * same key, so a cosmetic rename in the sheet cannot silently zero out the
+ * whole page.
+ */
+const canon = (name: string): string => name.toLowerCase().replace(/[\s_\-.]/g, "")
+
+/**
+ * Builds a header-name → column-index map so the readers survive column
+ * reordering in the sheet. Stage 2 writes by column name, not position, so
+ * positional parsing would be fragile.
+ */
+function headerIndex(headerRow: unknown[]): Record<string, number> {
+  const map: Record<string, number> = {}
+  headerRow.forEach((cell, i) => {
+    const name = str(cell)
+    if (name) map[canon(name)] = i
+  })
+  return map
+}
+
+/** Reads a cell by header name, tolerating spacing/case differences. */
+const cell = (row: unknown[], h: Record<string, number>, name: string): unknown => {
+  const idx = h[canon(name)]
+  return idx === undefined ? undefined : row[idx]
+}
+
+async function readTab(tab: string, range: string): Promise<unknown[][]> {
+  const auth = getAuthClient()
+  const sheets = google.sheets({ version: "v4", auth })
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: metricsSheetId(),
+    range: `${tab}!${range}`,
+    valueRenderOption: "UNFORMATTED_VALUE",
+  })
+  return (res.data.values || []) as unknown[][]
+}
+
+/** How far down to hunt for the header row before giving up. */
+const HEADER_SEARCH_LIMIT = 12
+
+/**
+ * Locates the real header row.
+ *
+ * These tabs are human-readable documents, not raw exports: row 1 is a title
+ * banner ("Sheet 4 — Daily Channel Snapshot"), row 2 a behaviour note, row 3
+ * section labels ("Primary Key", "Identity", "Metrics"), row 4 the actual
+ * headers, and rows 5-6 a type row ("Text", "Date", "Integer") and a
+ * description row. Assuming row 1 made every column lookup return undefined
+ * and silently produced an empty page.
+ *
+ * Rather than hard-coding row 4, score each candidate row by how many of the
+ * required headers it contains and take the best — so inserting or removing a
+ * banner row later cannot break this again.
+ */
+export function findHeaderRow(rows: unknown[][], required: string[]): number {
+  const wanted = new Set(required.map(canon))
+  let bestIdx = -1
+  let bestScore = 0
+
+  const limit = Math.min(rows.length, HEADER_SEARCH_LIMIT)
+  for (let i = 0; i < limit; i++) {
+    const names = new Set((rows[i] || []).map((c) => canon(str(c))).filter(Boolean))
+    let score = 0
+    for (const w of wanted) if (names.has(w)) score++
+    if (score > bestScore) {
+      bestScore = score
+      bestIdx = i
+    }
+  }
+
+  return bestScore === 0 ? -1 : bestIdx
+}
+
+/** Header names that must be present for each tab to be usable. */
+const CHANNEL_REQUIRED = ["Snapshot_Date", "Handle", "Total_Views", "Subscribers"]
+const VIDEO_REQUIRED = ["Snapshot_Date", "Video_ID", "Views", "Video_Type"]
+
+export async function readChannelSnapshots(sinceDate: string): Promise<ChannelSnapshot[]> {
+  const rows = await readTab(CHANNEL_TAB, "A1:N")
+  const headerRow = findHeaderRow(rows, CHANNEL_REQUIRED)
+  if (headerRow === -1) return []
+
+  const h = headerIndex(rows[headerRow])
+  const at = (row: unknown[], name: string) => cell(row, h, name)
+
+  // Rows immediately below the header are a type row and a description row.
+  // They are skipped implicitly: neither carries a parseable Snapshot_Date,
+  // and every row without one is dropped below.
+  const out: ChannelSnapshot[] = []
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i]
+    const snapshotDate = normaliseDate(at(row, "Snapshot_Date"))
+    if (!snapshotDate || snapshotDate < sinceDate) continue
+
+    const handle = str(at(row, "Handle"))
+    if (!handle) continue
+
+    out.push({
+      rowKey: str(at(row, "Row_Key")),
+      snapshotDate,
+      handle,
+      channelId: str(at(row, "Channel_ID")),
+      subscribers: num(at(row, "Subscribers")),
+      totalViews: num(at(row, "Total_Views")),
+      totalVideos: num(at(row, "Total_Videos")),
+      country: str(at(row, "Country")),
+      fetchedAt: str(at(row, "Fetched_At")),
+      producedBy: str(at(row, "Produced_By")),
+      niche: str(at(row, "Niche")),
+      category: str(at(row, "Category")),
+      format: str(at(row, "Format")),
+      nicheGroup: str(at(row, "Niche_Group")),
+    })
+  }
+  return out
+}
+
+const asVideoType = (raw: string): VideoType => (raw === "SHORTS" ? "SHORTS" : "LONG_FORM")
+
+const asRecordType = (raw: string): RecordType =>
+  raw === "OUTLIER" || raw === "RECENT_UPLOAD" ? raw : "HISTORICAL"
+
+export async function readVideoSnapshots(sinceDate: string): Promise<VideoSnapshot[]> {
+  const rows = await readTab(VIDEO_TAB, "A1:W")
+  const headerRow = findHeaderRow(rows, VIDEO_REQUIRED)
+  if (headerRow === -1) return []
+
+  const h = headerIndex(rows[headerRow])
+  const at = (row: unknown[], name: string) => cell(row, h, name)
+
+  const out: VideoSnapshot[] = []
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i]
+    const snapshotDate = normaliseDate(at(row, "Snapshot_Date"))
+    if (!snapshotDate || snapshotDate < sinceDate) continue
+
+    const videoId = str(at(row, "Video_ID"))
+    if (!videoId) continue
+
+    const labels = resolveOutlierLabels(at(row, "Outlier_Reason"), at(row, "Outlier_Age_Tag"))
+
+    out.push({
+      rowKey: str(at(row, "Row_Key")),
+      snapshotDate,
+      recordType: asRecordType(str(at(row, "Record_Type"))),
+      handle: str(at(row, "Handle")),
+      channelId: str(at(row, "Channel_ID")),
+      videoId,
+      videoUrl: str(at(row, "Video_URL")),
+      title: str(at(row, "Title")),
+      publishedAt: normaliseDate(at(row, "Published_At")),
+      durationHms: normaliseDuration(at(row, "Duration_HMS")),
+      thumbnailUrl: str(at(row, "Thumbnail_URL")),
+      videoType: asVideoType(str(at(row, "Video_Type"))),
+      views: num(at(row, "Views")),
+      likes: num(at(row, "Likes")),
+      comments: num(at(row, "Comments")),
+      outlierScore: num(at(row, "Outlier_Score")),
+      outlierReason: labels.reason,
+      outlierAgeTag: labels.ageTag,
+      producedBy: str(at(row, "Produced_By")),
+      niche: str(at(row, "Niche")),
+      category: str(at(row, "Category")),
+      format: str(at(row, "Format")),
+      nicheGroup: str(at(row, "Niche_Group")),
+    })
+  }
+  return out
+}
+
+/** What a tab actually contains, for diagnosing an empty result. */
+export interface TabDiagnostics {
+  tab: string
+  /** 1-based row number where the headers were found, or -1 if not found. */
+  headerRowNumber: number
+  totalRows: number
+  detectedHeaders: string[]
+  /** Headers the readers require that were NOT found. */
+  missingHeaders: string[]
+  /** Raw Snapshot_Date values from the first few data rows, before parsing. */
+  rawDateSamples: { raw: unknown; type: string; parsed: string }[]
+  /** Distinct parsed dates present, newest first (capped). */
+  parsedDatesFound: string[]
+  rowsInWindow: number
+}
+
+async function diagnoseTab(
+  tab: string,
+  range: string,
+  required: string[],
+  sinceDate: string
+): Promise<TabDiagnostics> {
+  const rows = await readTab(tab, range)
+  if (rows.length === 0) {
+    return {
+      tab,
+      headerRowNumber: -1,
+      totalRows: 0,
+      detectedHeaders: [],
+      missingHeaders: required,
+      rawDateSamples: [],
+      parsedDatesFound: [],
+      rowsInWindow: 0,
+    }
+  }
+
+  const headerRow = findHeaderRow(rows, required)
+  const headerIdx = headerRow === -1 ? 0 : headerRow
+
+  const detectedHeaders = (rows[headerIdx] || []).map((c) => str(c)).filter(Boolean)
+  const h = headerIndex(rows[headerIdx])
+  const missingHeaders = required.filter((r) => h[canon(r)] === undefined)
+
+  const rawDateSamples = rows.slice(headerIdx + 1, headerIdx + 5).map((row) => {
+    const raw = cell(row, h, "Snapshot_Date")
+    return { raw, type: typeof raw, parsed: normaliseDate(raw) }
+  })
+
+  const parsed = new Set<string>()
+  let rowsInWindow = 0
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const d = normaliseDate(cell(rows[i], h, "Snapshot_Date"))
+    if (d) {
+      parsed.add(d)
+      if (d >= sinceDate) rowsInWindow++
+    }
+  }
+
+  return {
+    tab,
+    headerRowNumber: headerRow === -1 ? -1 : headerRow + 1,
+    totalRows: Math.max(0, rows.length - headerIdx - 1),
+    detectedHeaders,
+    missingHeaders,
+    rawDateSamples,
+    parsedDatesFound: [...parsed].sort().reverse().slice(0, 10),
+    rowsInWindow,
+  }
+}
+
+/** Diagnostics for both tabs — surfaced via /api/metrics?debug=1. */
+export async function diagnose(sinceDate: string): Promise<TabDiagnostics[]> {
+  return Promise.all([
+    diagnoseTab(CHANNEL_TAB, "A1:N", ["Snapshot_Date", "Handle", "Total_Views", "Subscribers"], sinceDate),
+    diagnoseTab(VIDEO_TAB, "A1:W", ["Snapshot_Date", "Video_ID", "Views", "Video_Type"], sinceDate),
+  ])
+}
