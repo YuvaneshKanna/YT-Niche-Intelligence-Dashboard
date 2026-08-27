@@ -17,3 +17,12 @@ node_modules
 
 # Local Claude Code tooling (project-scoped skills, not app code)
 .claude/
+
+# n8n-mcp config (holds API key)
+.mcp.json
+
+.env*
+
+# Session/ops notes — reference a live host and a service-account key filename
+.agents/NEXT-SESSION.md
+.agents/stage2-backup-*.md
