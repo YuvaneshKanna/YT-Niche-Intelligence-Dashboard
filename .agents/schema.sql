@@ -53,3 +53,17 @@ CREATE TABLE IF NOT EXISTS snapshots (
   PRIMARY KEY (video_id, snapshot_date)
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_date ON snapshots(snapshot_date);
+
+-- Added 2026-08-27: mirrors Sheet4_Daily_Channel_Snapshot (full daily
+-- per-channel time series). Not covered by `snapshots`, which only tracks
+-- outlier/tracked videos. See .agents/neon-migration-spec.md.
+CREATE TABLE IF NOT EXISTS channel_snapshots (
+  channel_id     TEXT NOT NULL REFERENCES channels(channel_id),
+  snapshot_date  DATE NOT NULL,
+  subscribers    INTEGER NOT NULL,
+  total_views    BIGINT NOT NULL,
+  total_videos   INTEGER NOT NULL,
+  country        TEXT,
+  fetched_at     TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (channel_id, snapshot_date)
+);
