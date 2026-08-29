@@ -34,10 +34,17 @@ const asVideoType = (raw: string): VideoType => (raw === "SHORTS" ? "SHORTS" : "
 const asRecordType = (raw: string): RecordType =>
   raw === "OUTLIER" || raw === "RECENT_UPLOAD" ? raw : "HISTORICAL"
 
-/** Seconds → "H:MM:SS" (hours not zero-padded), matching the Sheets output. */
+/**
+ * Seconds → "H:MM:SS" (hours not zero-padded), matching the Sheets output.
+ *
+ * `duration_seconds` is `INTEGER NOT NULL`, so a 0 is a real value (live
+ * streams / premieres the YouTube API reports no length for) — emit
+ * "0:00:00" for it, exactly as the Sheets `normaliseDuration(0)` did. Only a
+ * negative / non-finite value is treated as garbage and blanked.
+ */
 export function secondsToHms(totalSeconds: unknown): string {
   const n = num(totalSeconds)
-  if (n <= 0) return ""
+  if (!Number.isFinite(n) || n < 0) return ""
   const s = Math.round(n)
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
