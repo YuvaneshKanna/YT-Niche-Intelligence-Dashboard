@@ -10,11 +10,12 @@ import type { Channel } from "@/lib/constants"
 interface ChannelCardProps {
   channel: Channel
   isActive: boolean
+  needsAudit?: boolean
   onClick: () => void
   onDeleteClick: () => void
 }
 
-export function ChannelCard({ channel, isActive, onClick, onDeleteClick }: ChannelCardProps) {
+export function ChannelCard({ channel, isActive, needsAudit, onClick, onDeleteClick }: ChannelCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -68,9 +69,15 @@ export function ChannelCard({ channel, isActive, onClick, onDeleteClick }: Chann
         )}
       </div>
 
-      {/* Row 1: Channel name */}
-      <p className="font-semibold text-sidebar-foreground truncate text-sm pr-6">
-        {channel.handle}
+      {/* Row 1: Channel name — amber dot = missing classification, needs audit */}
+      <p className="font-semibold text-sidebar-foreground truncate text-sm pr-6 flex items-center gap-1.5">
+        {needsAudit && (
+          <span
+            className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"
+            title="Needs audit — missing niche, category, niche group or produced-by"
+          />
+        )}
+        <span className="truncate">{channel.handle}</span>
       </p>
 
       {/* Row 2: @handle - removed as it's the same as above, showing name without @ instead */}

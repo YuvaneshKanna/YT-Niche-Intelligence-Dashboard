@@ -23,6 +23,35 @@ import {
   type ContentType,
 } from "@/lib/constants"
 import { useChannels } from "@/lib/useChannels"
+import { cn } from "@/lib/utils"
+
+/**
+ * A channel "needs audit" until a human has set all four classification
+ * fields the Niche Breakdown page aggregates by. This is the triage signal
+ * for the sidebar filter + card dot.
+ */
+function needsAudit(c: Channel): boolean {
+  return (
+    !c.niche?.trim() ||
+    !c.category?.trim() ||
+    !c.nicheGroup?.trim() ||
+    !c.producedBy?.trim()
+  )
+}
+
+const normHandleKey = (h: string) => (h || "").trim().toLowerCase().replace(/^@/, "")
+
+/** Resolve a `?channel=` param (handle, ytUrl or id) to a channel id. */
+function readChannelParam(channels: Channel[]): string | null {
+  if (typeof window === "undefined") return null
+  const raw = new URLSearchParams(window.location.search).get("channel")
+  if (!raw) return null
+  const target = normHandleKey(raw)
+  const match = channels.find(
+    (c) => normHandleKey(c.handle || "") === target || c.id === raw || c.ytUrl === raw,
+  )
+  return match?.id ?? null
+}
 
 
 
@@ -118,13 +147,43 @@ export function Dashboard() {
   useEffect(() => {
     if (initialChannels.length > 0) {
       setChannelsState2(initialChannels)
-      if (!selectedChannelId) setSelectedChannelId(initialChannels[0].id)
+      if (!selectedChannelId) {
+        setSelectedChannelId(readChannelParam(initialChannels) ?? initialChannels[0].id)
+      }
     }
   }, [initialChannels])
+
+  // Keep the URL in sync with the selected channel (?channel=<handle>) so an
+  // audit view is refreshable and shareable, and so other pages can link
+  // straight to a channel. replaceState (not push) — a rapid audit shouldn't
+  // stack dozens of history entries.
+  useEffect(() => {
+    if (typeof window === "undefined" || !selectedChannelId) return
+    const ch = channelsState.find((c) => c.id === selectedChannelId)
+    if (!ch) return
+    const params = new URLSearchParams(window.location.search)
+    const handle = normHandleKey(ch.handle || "")
+    if (handle) params.set("channel", handle)
+    else params.delete("channel")
+    const qs = params.toString()
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname)
+  }, [selectedChannelId, channelsState])
+
+  // React to browser back/forward and externally-edited ?channel= params.
+  useEffect(() => {
+    const onPop = () => {
+      const id = readChannelParam(channelsState)
+      if (id) setSelectedChannelId(id)
+    }
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [channelsState])
+
   const [showSettings, setShowSettings] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [showUnavailable, setShowUnavailable] = useState(false)
   const [showHandleDiff, setShowHandleDiff] = useState(false)
+  const [showNeedsAudit, setShowNeedsAudit] = useState(false)
   const [channelIsUnavailable, setChannelIsUnavailable] = useState(false)
   const [channelHasHandleDiff, setChannelHasHandleDiff] = useState(false)
   const [channelPendingDelete, setChannelPendingDelete] = useState<Channel | null>(null)
@@ -315,6 +374,7 @@ export function Dashboard() {
         if (!unavailableMatch && !diffMatch) return false
       }
       if (!isInDateRange(channel.sharedOn, dateFilter, customRange)) return false
+      if (showNeedsAudit && !needsAudit(channel)) return false
       // Dropdown filters (AND logic — only applied in filter mode)
       if (!isEditMode) {
         if (filterValues.niche && channel?.niche !== filterValues.niche) return false
@@ -334,7 +394,12 @@ export function Dashboard() {
         channel?.type?.toLowerCase().includes(query)
       )
     })
-  }, [channelsState, searchQuery, showUnavailable, showHandleDiff, dateFilter, customRange, filterValues, isEditMode])
+  }, [channelsState, searchQuery, showUnavailable, showHandleDiff, showNeedsAudit, dateFilter, customRange, filterValues, isEditMode])
+
+  const needsAuditCount = useMemo(
+    () => channelsState.filter(needsAudit).length,
+    [channelsState],
+  )
 
   const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
   const [channelInfo, setChannelInfo] = useState({
@@ -611,6 +676,33 @@ export function Dashboard() {
           </div>
         </div>
 
+        {/* Needs-audit triage filter */}
+        <div className="flex-shrink-0 px-3 py-2 border-b border-sidebar-border">
+          <button
+            onClick={() => setShowNeedsAudit((v) => !v)}
+            aria-pressed={showNeedsAudit}
+            className={cn(
+              "w-full flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-colors",
+              showNeedsAudit
+                ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
+                : "border-sidebar-border text-muted-foreground hover:text-sidebar-foreground hover:border-amber-500/40",
+            )}
+          >
+            <span className="flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5" />
+              Needs audit
+            </span>
+            <span
+              className={cn(
+                "inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums",
+                showNeedsAudit ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground",
+              )}
+            >
+              {needsAuditCount}
+            </span>
+          </button>
+        </div>
+
         {/* Channel List */}
         <div className="flex-1 overflow-y-auto">
           <div className="p-2 space-y-1">
@@ -619,6 +711,7 @@ export function Dashboard() {
                 key={channel.id}
                 channel={channel}
                 isActive={channel.id === selectedChannelId}
+                needsAudit={needsAudit(channel)}
                 onClick={() => handleSelectChannel(channel.id)}
                 onDeleteClick={() => setChannelPendingDelete(channel)}
               />
