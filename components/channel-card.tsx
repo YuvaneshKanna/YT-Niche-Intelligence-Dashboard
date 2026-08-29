@@ -74,7 +74,7 @@ export function ChannelCard({ channel, isActive, needsAudit, onClick, onDeleteCl
         {needsAudit && (
           <span
             className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"
-            title="Needs audit — missing niche, category, niche group or produced-by"
+            title="Needs audit — missing niche, category or produced-by"
           />
         )}
         <span className="truncate">{channel.handle}</span>

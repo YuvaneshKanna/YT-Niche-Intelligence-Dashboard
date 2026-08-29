@@ -26,15 +26,16 @@ import { useChannels } from "@/lib/useChannels"
 import { cn } from "@/lib/utils"
 
 /**
- * A channel "needs audit" until a human has set all four classification
- * fields the Niche Breakdown page aggregates by. This is the triage signal
- * for the sidebar filter + card dot.
+ * A channel "needs audit" until a human has set the classification fields
+ * the Niche Breakdown page aggregates by. Niche Group is deliberately
+ * excluded — a blank Niche Group on its own is fine; niche, category and
+ * produced-by are the ones that need attention. Triage signal for the
+ * sidebar filter + card dot.
  */
 function needsAudit(c: Channel): boolean {
   return (
     !c.niche?.trim() ||
     !c.category?.trim() ||
-    !c.nicheGroup?.trim() ||
     !c.producedBy?.trim()
   )
 }
