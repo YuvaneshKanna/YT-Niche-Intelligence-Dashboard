@@ -612,16 +612,30 @@ export function Dashboard() {
     )
   }, [tempValues, selectedChannel])
 
-  const similarChannels = useMemo(
-    () =>
-      channelsState.filter(
-        (c) =>
-          c.id !== selectedChannelId &&
-          c.type === selectedChannel?.type &&
-          c.niche === selectedChannel?.niche
-      ),
-    [channelsState, selectedChannelId, selectedChannel]
-  )
+  /**
+   * The selected channel's peers: same Type, same Niche, best first.
+   *
+   * Sorted by combined score rather than sheet order, because the question
+   * this row answers is "how does this niche actually perform" — and an
+   * unsorted list of handles cannot answer it. Peers with no score sort last;
+   * they are untracked in Neon, not bad.
+   */
+  const similarChannels = useMemo(() => {
+    const peers = channelsState.filter(
+      (c) =>
+        c.id !== selectedChannelId &&
+        c.type === selectedChannel?.type &&
+        c.niche === selectedChannel?.niche
+    )
+    return peers.sort((a, b) => {
+      const ea = rankingByChannelId.get(a.id)
+      const eb = rankingByChannelId.get(b.id)
+      if (ea && eb) return eb.cohort.combinedScore - ea.cohort.combinedScore
+      if (ea) return -1
+      if (eb) return 1
+      return 0
+    })
+  }, [channelsState, selectedChannelId, selectedChannel, rankingByChannelId])
   const [channelInfo, setChannelInfo] = useState({
     channelName: "—", about: "—", createdOn: "—", subscribers: "—",
     totalVideos: "—", totalViews: "—", country: "—",
@@ -1555,6 +1569,7 @@ export function Dashboard() {
                 <SimilarChannelCard
                   key={ch.id}
                   channel={ch}
+                  entry={rankingByChannelId.get(ch.id)}
                   onSelect={(id) => handleSelectChannel(id)}
                 />
               ))}

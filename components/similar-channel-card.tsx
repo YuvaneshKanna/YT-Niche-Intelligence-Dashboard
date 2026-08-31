@@ -2,13 +2,16 @@
 
 import { useState, useEffect, useRef } from "react"
 import type { Channel } from "@/lib/constants"
+import type { RankedEntry } from "@/lib/useRankings"
 
 interface SimilarChannelCardProps {
     channel: Channel
+    /** This peer's placement, so the row can be compared rather than just browsed. */
+    entry?: RankedEntry
     onSelect: (id: string) => void
 }
 
-export function SimilarChannelCard({ channel, onSelect }: SimilarChannelCardProps) {
+export function SimilarChannelCard({ channel, entry, onSelect }: SimilarChannelCardProps) {
     const [videoId, setVideoId] = useState<string | null>(null)
     const [thumbnail, setThumbnail] = useState<string | null>(null)
     const [isHovered, setIsHovered] = useState(false)
@@ -64,6 +67,24 @@ export function SimilarChannelCard({ channel, onSelect }: SimilarChannelCardProp
                     </div>
                 )}
 
+                {/* Placement, so a peer can be judged without opening it. These
+                    are all channels already in the sheet, so the useful question
+                    is not "should I add this" but "is it doing better than the
+                    one I am looking at". */}
+                {entry && !isHovered && (
+                    <span
+                        className={`absolute top-1.5 left-1.5 rounded px-1.5 py-px text-[10px] font-bold tabular-nums ${entry.cohort.combinedScore >= 70
+                            ? 'bg-emerald-500/90 text-black'
+                            : entry.cohort.combinedScore >= 40
+                                ? 'bg-sky-500/90 text-black'
+                                : 'bg-zinc-700/90 text-white'
+                            }`}
+                        title={`Combined ${entry.cohort.combinedScore} · rank ${entry.rank} of ${entry.poolSize} in the ${entry.pool === 'SHORTS' ? 'Shorts' : 'long-form'} pool`}
+                    >
+                        {entry.cohort.combinedScore}
+                    </span>
+                )}
+
                 {/* Hover overlay when showing thumbnail */}
                 {!isHovered && thumbnail && (
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors duration-200 flex items-center justify-center">
@@ -78,7 +99,14 @@ export function SimilarChannelCard({ channel, onSelect }: SimilarChannelCardProp
 
             {/* Channel info */}
             <div className="px-3 py-2">
-                <p className="text-sm font-semibold text-foreground truncate">{channel.handle}</p>
+                <div className="flex items-baseline justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground truncate">{channel.handle}</p>
+                    {entry && (
+                        <span className="flex-shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                            #{entry.rank} {entry.pool === 'SHORTS' ? 'SH' : 'LF'}
+                        </span>
+                    )}
+                </div>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${channel.type === 'Shorts' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
                         }`}>{channel.type}</span>

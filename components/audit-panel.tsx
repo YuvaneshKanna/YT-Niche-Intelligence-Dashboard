@@ -301,7 +301,12 @@ export function AuditPanel({
               {channel.handle}
             </h2>
             {facts.channelName && facts.channelName !== "—" && (
-              <p className="truncate text-xs text-muted-foreground">{facts.channelName}</p>
+              // The display name is what the channel calls itself and often
+              // reads nothing like the handle, so it earns real contrast
+              // rather than muted fine print.
+              <p className="truncate text-sm font-medium text-foreground/80">
+                {facts.channelName}
+              </p>
             )}
             <div className="mt-1.5 flex flex-wrap items-center gap-1">
               {values.contentType && (
