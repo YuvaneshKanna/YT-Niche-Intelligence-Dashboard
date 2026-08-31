@@ -88,7 +88,7 @@ export function VideoStrip({
   return (
     <div
       ref={scrollerRef}
-      className="group/strip flex flex-nowrap items-start gap-3 overflow-x-scroll overflow-y-visible py-4 pl-2"
+      className="no-scrollbar group/strip flex flex-nowrap items-start gap-3 overflow-x-auto overflow-y-visible py-4 pl-2"
       onMouseLeave={stopPreview}
     >
       {videos.map((v) => {

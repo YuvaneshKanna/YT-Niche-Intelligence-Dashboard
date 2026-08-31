@@ -1247,16 +1247,14 @@ export function Dashboard() {
         <div className="flex flex-1 min-h-0 px-5 pt-4 pb-4 gap-4 overflow-hidden">
 
           {/* LEFT — Video Player */}
-          <div className="w-[60%] flex flex-col min-h-0 overflow-y-auto">
+          <div className="w-[60%] flex flex-col min-h-0 overflow-hidden">
+            {/* Height-driven, not width-driven. Deriving the frame from the
+                available height is what keeps the stat tiles below it on
+                screen without the column scrolling: the player takes the space
+                that is left, and its width follows from the aspect ratio. */}
+            <div className="flex min-h-0 flex-1 items-center justify-center">
             <div
-              className={cn(
-                // flex-shrink-0 is load-bearing: without it the player is the
-                // flex item that gives up height when anything is added below.
-                "w-full flex-shrink-0 rounded-xl overflow-hidden bg-black relative mx-auto",
-                // A Short in a 16:9 frame is mostly black bars, which makes the
-                // production quality — the thing being judged — hard to see.
-                videoData?.isShort && "max-w-[calc((100vh-22rem)*0.5625)]",
-              )}
+              className="relative h-full max-w-full overflow-hidden rounded-xl bg-black"
               style={{ aspectRatio: videoData?.isShort ? '9/16' : '16/9' }}
             >
               <div className="absolute inset-0">
@@ -1281,6 +1279,7 @@ export function Dashboard() {
                   </div>
                 )}
               </div>
+            </div>
             </div>
             {videoData && (videoData.publishedAt || videoData.views || videoData.likes || videoData.comments) && (
               <div className="flex gap-2 mt-2 flex-wrap flex-shrink-0">
@@ -1621,7 +1620,7 @@ export function Dashboard() {
           ) : (
             <div
               ref={similarScrollRef}
-              className="group/strip flex flex-nowrap items-start gap-3 overflow-x-scroll overflow-y-visible py-4 pl-2"
+              className="no-scrollbar group/strip flex flex-nowrap items-start gap-3 overflow-x-auto overflow-y-visible py-4 pl-2"
             >
               {similarChannels.slice(0, 12).map((ch) => (
                 <SimilarChannelCard

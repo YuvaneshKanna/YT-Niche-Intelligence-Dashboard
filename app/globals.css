@@ -123,3 +123,19 @@
     @apply bg-background text-foreground;
   }
 }
+
+/*
+ * Scroll without a visible scrollbar.
+ *
+ * For rows that are scrolled by wheel or trackpad rather than by dragging a
+ * bar — the recent-uploads and similar-channels rows both are. The element
+ * stays fully scrollable and keyboard-reachable; only the painted bar goes,
+ * which also returns the ~15px gutter the bar was reserving.
+ */
+.no-scrollbar {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* legacy Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;                  /* Chromium, Safari */
+}
