@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
+import { VideoStrip, type VideoItem } from "@/components/video-strip"
 import { SimilarChannelCard } from "@/components/similar-channel-card"
 import { UserSelectModal } from "@/components/user-select-modal"
 import { SettingsModal } from "@/components/settings-modal"
@@ -235,8 +236,17 @@ export function Dashboard() {
   const [isFavouritesOpen, setIsFavouritesOpen] = useState(false)
   const [hoveredSimilarId, setHoveredSimilarId] = useState<string | null>(null)
   const [videoPlaying, setVideoPlaying] = useState(false)
-  const [videoData, setVideoData] = useState<{ videoId: string; title: string; thumbnail: string; publishedAt?: string; views?: string; likes?: string; comments?: string } | null>(null)
+  // The channel's recent uploads, and which one the player is showing. One
+  // video cannot settle a classification — Produced_By especially — so the
+  // whole strip is kept and the auditor picks.
+  const [videos, setVideos] = useState<VideoItem[]>([])
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null)
   const [videoLoading, setVideoLoading] = useState(false)
+
+  const videoData = useMemo(
+    () => videos.find((v) => v.videoId === selectedVideoId) ?? videos[0] ?? null,
+    [videos, selectedVideoId],
+  )
 
   useEffect(() => {
     fetch('/api/favourites')
@@ -493,14 +503,23 @@ export function Dashboard() {
   useEffect(() => {
     const handle = channelsState.find(c => c.id === selectedChannelId)?.handle
     if (!handle) return
-    setVideoData(null)
+    setVideos([])
+    setSelectedVideoId(null)
     setVideoPlaying(false)
     setVideoLoading(true)
     const ch = channelsState.find(c => c.id === selectedChannelId)
     fetch(`/api/channel-video?handle=${encodeURIComponent(handle)}&ytUrl=${encodeURIComponent(ch?.ytUrl || '')}`)
       .then(r => r.json())
       .then(data => {
-        if (data.videoId) setVideoData(data)
+        if (Array.isArray(data.videos) && data.videos.length > 0) {
+          setVideos(data.videos as VideoItem[])
+          const index = typeof data.selectedIndex === "number" ? data.selectedIndex : 0
+          setSelectedVideoId(data.videos[index]?.videoId ?? data.videos[0].videoId)
+        } else if (data.videoId) {
+          // Older shape, or a lone video with no resolvable channel.
+          setVideos([data as VideoItem])
+          setSelectedVideoId(data.videoId)
+        }
       })
       .catch(() => { })
       .finally(() => setVideoLoading(false))
@@ -1231,12 +1250,20 @@ export function Dashboard() {
 
           {/* LEFT — Video Player */}
           <div className="w-[60%] flex flex-col min-h-0 overflow-y-auto">
-            <div className="w-full rounded-xl overflow-hidden bg-black relative" style={{ aspectRatio: '16/9' }}>
+            <div
+              className={cn(
+                "w-full rounded-xl overflow-hidden bg-black relative mx-auto",
+                // A Short in a 16:9 frame is mostly black bars, which makes the
+                // production quality — the thing being judged — hard to see.
+                videoData?.isShort && "max-w-[calc((100vh-22rem)*0.5625)]",
+              )}
+              style={{ aspectRatio: videoData?.isShort ? '9/16' : '16/9' }}
+            >
               <div className="absolute inset-0">
                 {videoLoading ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900">
                     <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-white/60 text-sm">Loading {selectedChannel?.handle}&apos;s top video…</p>
+                    <p className="text-white/60 text-sm">Loading {selectedChannel?.handle}&apos;s recent uploads…</p>
                   </div>
                 ) : videoData ? (
                   <iframe
@@ -1283,6 +1310,15 @@ export function Dashboard() {
                 )}
               </div>
             )}
+
+            <VideoStrip
+              videos={videos}
+              selectedId={videoData?.videoId ?? null}
+              onSelect={(id) => {
+                setSelectedVideoId(id)
+                setVideoPlaying(false)
+              }}
+            />
           </div>
 
           {/* RIGHT — Info Cards stacked vertically, fills height of left column */}
