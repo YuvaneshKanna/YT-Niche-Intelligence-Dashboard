@@ -6,57 +6,18 @@ import { MoreVertical, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import type { Channel } from "@/lib/constants"
+import { ScoreHoverCard } from "@/components/score-hover-card"
 import type { RankedEntry } from "@/lib/useRankings"
 
 /** Pool tag shown beside the rank. Two pools only — never a combined bucket. */
 const POOL_TAG = { LONG_FORM: "LF", SHORTS: "SH" } as const
 const POOL_NAME = { LONG_FORM: "long-form", SHORTS: "Shorts" } as const
 
-/**
- * Score band colour. Always paired with the number and the bar length, never
- * the only carrier of the value — colour alone fails colour-blind readers and
- * is unreadable at this bar height.
- */
+/** Score band colour for the inline bar. Always paired with the number beside it. */
 function scoreTone(score: number): string {
   if (score >= 70) return "bg-emerald-400"
   if (score >= 40) return "bg-sky-400"
   return "bg-slate-500"
-}
-
-/** The full breakdown, shown on hover over the rank, the score and the bar. */
-function scoreTitle(entry: RankedEntry): string {
-  const { score, cohort, rank, poolSize, pool } = entry
-  const split = score.formatSplit
-  const measuredDiffers = split.measuredClass !== pool
-
-  const lines = [
-    `#${rank} of ${poolSize} in the ${POOL_NAME[pool]} pool · combined ${cohort.combinedScore}`,
-    `Channel ${cohort.channelScore} (75%) · Niche ${cohort.nicheScore ?? "—"} (25%)`,
-    `Ranked only against other ${POOL_NAME[pool]} channels — the two pools never mix.`,
-    "",
-    ...cohort.components.map(
-      (c) =>
-        `${c.label}: ${c.score ?? "—"} (${c.displayValue}, weight ${Math.round(c.weight * 100)}%)`
-    ),
-    "",
-    `Tracked uploads: ${split.longFormVideos} long-form / ${split.shortsVideos} Shorts`,
-  ]
-
-  // Worth surfacing: the sheet's Type decides the pool, so when the measured
-  // mix disagrees the Type field may simply be out of date.
-  if (measuredDiffers) {
-    lines.push(
-      `Note: uploads look mostly ${POOL_NAME[split.measuredClass]}, but Type says ${POOL_NAME[pool]}. Pool follows Type.`
-    )
-  }
-
-  lines.push(
-    score.createdAt
-      ? `Created ${score.createdAt} · ${score.channelAgeDays}d old · ${score.totalVideos} videos`
-      : `Creation date unavailable · ${score.totalVideos} videos`,
-    `Confidence: ${score.confidence}. ${score.confidenceReason}`
-  )
-  return lines.join("\n")
 }
 
 interface ChannelCardProps {
@@ -127,13 +88,14 @@ export function ChannelCard({ channel, isActive, needsAudit, entry, onClick, onD
           Amber dot = missing classification, needs audit. */}
       <p className="font-semibold text-sidebar-foreground truncate text-sm pr-6 flex items-center gap-1.5">
         {entry && (
-          <span
-            className="flex-shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground"
-            title={scoreTitle(entry)}
+          <ScoreHoverCard
+            entry={entry}
+            ariaLabel={`Ranked ${entry.rank} of ${entry.poolSize} among ${POOL_NAME[entry.pool]} channels. Show score breakdown.`}
+            className="flex-shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground hover:text-foreground"
           >
             #{entry.rank}
             <span className="ml-0.5 text-[9px] uppercase opacity-70">{POOL_TAG[entry.pool]}</span>
-          </span>
+          </ScoreHoverCard>
         )}
         {needsAudit && (
           <span
@@ -143,12 +105,13 @@ export function ChannelCard({ channel, isActive, needsAudit, entry, onClick, onD
         )}
         <span className="truncate">{channel.handle}</span>
         {entry && (
-          <span
-            className="ml-auto flex-shrink-0 text-xs font-semibold tabular-nums text-foreground"
-            title={scoreTitle(entry)}
+          <ScoreHoverCard
+            entry={entry}
+            ariaLabel={`Combined score ${entry.cohort.combinedScore} of 100. Show score breakdown.`}
+            className="ml-auto flex-shrink-0 text-xs font-semibold tabular-nums text-foreground hover:text-primary"
           >
             {entry.cohort.combinedScore}
-          </span>
+          </ScoreHoverCard>
         )}
       </p>
 
@@ -191,18 +154,21 @@ export function ChannelCard({ channel, isActive, needsAudit, entry, onClick, onD
 
       {/* Row 5: combined-score bar + cohort tag. Hover for the full breakdown. */}
       {entry && (
-        <div className="mt-2 flex items-center gap-2" title={scoreTitle(entry)}>
-          <div
+        <ScoreHoverCard
+          entry={entry}
+          ariaLabel={`Combined score ${entry.cohort.combinedScore} of 100, ranked ${entry.rank} of ${entry.poolSize} among ${POOL_NAME[entry.pool]} channels. Show score breakdown.`}
+          className="mt-2 block w-full"
+        >
+          <span
             role="meter"
             aria-valuenow={entry.cohort.combinedScore}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={`Combined score ${entry.cohort.combinedScore} of 100, ranked ${entry.rank} of ${entry.poolSize} among ${POOL_NAME[entry.pool]} channels`}
-            className="h-1 flex-1 overflow-hidden rounded-full bg-white/10"
+            className="block h-1 w-full overflow-hidden rounded-full bg-white/10"
           >
-            <div
+            <span
               className={cn(
-                "h-full rounded-full transition-all duration-300",
+                "block h-full rounded-full transition-all duration-300",
                 scoreTone(entry.cohort.combinedScore),
                 // A low-confidence score is real but thinly evidenced — dim it
                 // rather than hide it, so the bar is never read as certain.
@@ -210,8 +176,8 @@ export function ChannelCard({ channel, isActive, needsAudit, entry, onClick, onD
               )}
               style={{ width: `${Math.max(2, entry.cohort.combinedScore)}%` }}
             />
-          </div>
-        </div>
+          </span>
+        </ScoreHoverCard>
       )}
 
       {/* Row 6: Shared on date */}
