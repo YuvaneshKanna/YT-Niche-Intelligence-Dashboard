@@ -9,8 +9,16 @@ browser → /api/chat (Vercel) → Claude Code, in the same function
 ```
 
 There is no second service. The Claude Agent SDK ships the Claude Code harness
-as plain JavaScript — no native binary, nothing downloaded at install time — so
-it runs inside the Vercel function the same way it runs on a laptop.
+as an npm package, so it runs inside the Vercel function the same way it runs
+on a laptop — nothing is downloaded at install time and no separate machine
+stays awake.
+
+The harness is a native binary, delivered as a platform-specific optional
+dependency (`@anthropic-ai/claude-agent-sdk-linux-x64` for Vercel, ~200MB).
+The SDK resolves it at runtime by path, so nothing imports it and Next.js
+tracing cannot see it — `next.config.mjs` names it explicitly under
+`outputFileTracingIncludes`. Remove that and the deployed route fails with
+`Native CLI binary for linux-x64 not found` while local dev keeps working.
 
 ## Setup
 
