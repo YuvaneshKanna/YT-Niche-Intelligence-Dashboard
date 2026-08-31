@@ -28,6 +28,9 @@ export function useChannels() {
                     verified: c.verified || '',
                     tracking: (c.tracking?.toUpperCase() === 'YES' ? 'YES' : 'NO') as TrackingStatus,
                     sharedOn: c.sharedOn || '',
+                    auditedBy: c.auditedBy || '',
+                    auditedAt: c.auditedAt || '',
+                    auditHash: c.auditHash || '',
                     isUnavailable: !c.handle || c.handle.toLowerCase().includes('unavailable'),
                     hasHandleDiff: c.hasHandleDiff,
                 }))

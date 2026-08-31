@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
 import { VideoStrip, type VideoItem } from "@/components/video-strip"
 import { AuditPanel, type AuditValues, type AuditFieldKey } from "@/components/audit-panel"
+import { auditHash, isVerificationCurrent } from "@/lib/auditHash"
 import { SimilarChannelCard } from "@/components/similar-channel-card"
 import { useHorizontalWheel } from "@/lib/useHorizontalWheel"
 import { UserSelectModal } from "@/components/user-select-modal"
@@ -22,6 +23,7 @@ import { PageNav } from "@/components/page-nav"
 
 import {
   type Channel,
+  type ChannelType,
   type TrackingStatus,
   type ContentType,
 } from "@/lib/constants"
@@ -30,17 +32,33 @@ import { buildRanking, useRankings } from "@/lib/useRankings"
 import { cn } from "@/lib/utils"
 
 /**
- * A channel "needs audit" until a human has set the classification fields
- * the Niche Breakdown page aggregates by. Niche Group is deliberately
- * excluded — a blank Niche Group on its own is fine; niche, category and
- * produced-by are the ones that need attention. Triage signal for the
- * sidebar filter + card dot.
+ * A channel needs audit until a human has confirmed its classification.
+ *
+ * Blank required fields still count — Niche, Category and Produced By are what
+ * the Niche Breakdown page aggregates by, and Niche Group is deliberately not
+ * among them, since a blank group on its own is fine.
+ *
+ * But emptiness alone was never the real signal: it cannot distinguish "the AI
+ * filled this in and a human checked it" from "the AI filled this in and nobody
+ * has looked", and the AI is not always right — which is the entire reason this
+ * page exists. So a channel is only clear once someone pressed Verify AND the
+ * fields still match what they verified. Edit any field afterwards and the
+ * recorded hash stops matching, so it returns to the queue by itself.
  */
 function needsAudit(c: Channel): boolean {
-  return (
-    !c.niche?.trim() ||
-    !c.category?.trim() ||
-    !c.producedBy?.trim()
+  if (!c.niche?.trim() || !c.category?.trim() || !c.producedBy?.trim()) return true
+  return !isVerificationCurrent(
+    {
+      contentType: c.contentType,
+      niche: c.niche,
+      category: c.category,
+      format: c.format,
+      producedBy: c.producedBy,
+      nicheGroup: c.nicheGroup,
+      tracking: c.tracking,
+    },
+    c.auditHash,
+    c.auditedAt,
   )
 }
 
@@ -462,6 +480,77 @@ export function Dashboard() {
   )
 
   const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
+
+  /**
+   * Record that a human checked this channel: who, when, and a fingerprint of
+   * the values they stood behind. Saves the fields in the same request, so
+   * Verify works whether or not anything was changed first — confirming a
+   * correct AI classification is the common case and must not require an edit.
+   */
+  const handleVerify = async () => {
+    if (!selectedChannel) return
+    const stampedAt = new Date().toISOString()
+    const stampedBy = currentUser || 'unknown'
+    const stampedHash = auditHash(tempValues)
+
+    setChannelsState2((prev) =>
+      prev.map((c) =>
+        c.id === selectedChannel.id
+          ? {
+              ...c,
+              type: (tempValues.contentType === 'Shorts' ? 'Shorts' : 'Long-Form') as ChannelType,
+              contentType: tempValues.contentType as ContentType,
+              niche: tempValues.niche,
+              category: tempValues.category,
+              format: tempValues.format,
+              producedBy: tempValues.producedBy,
+              nicheGroup: tempValues.nicheGroup,
+              verified: tempValues.verified,
+              tracking: tempValues.tracking as TrackingStatus,
+              auditedBy: stampedBy,
+              auditedAt: stampedAt,
+              auditHash: stampedHash,
+            }
+          : c,
+      ),
+    )
+
+    try {
+      const res = await fetch('/api/channels', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ytUrl: selectedChannel.ytUrl,
+          type: tempValues.contentType,
+          niche: tempValues.niche,
+          category: tempValues.category,
+          format: tempValues.format,
+          producedBy: tempValues.producedBy,
+          nicheGroup: tempValues.nicheGroup,
+          verified: tempValues.verified,
+          tracking: tempValues.tracking,
+          auditedBy: stampedBy,
+          auditedAt: stampedAt,
+          auditHash: stampedHash,
+        }),
+      })
+      const data = await res.json()
+      if (!data.success) throw new Error(data.error || 'Verify failed')
+    } catch (err) {
+      console.error('Verify failed:', err)
+      alert('Could not record the verification. The sheet was not updated.')
+    }
+  }
+
+  /** "Verified by X on Y" while the stamp still matches the fields on screen. */
+  const verifiedLabel = useMemo(() => {
+    if (!selectedChannel) return null
+    if (!isVerificationCurrent(tempValues, selectedChannel.auditHash, selectedChannel.auditedAt)) {
+      return null
+    }
+    const when = selectedChannel.auditedAt?.slice(0, 10) ?? ''
+    return `Verified by ${selectedChannel.auditedBy || 'unknown'}${when ? ` on ${when}` : ''}`
+  }, [selectedChannel, tempValues])
 
   /** Option lists for the audit form, single-sourced from the master-rules tab. */
   const auditOptions = useMemo(
@@ -1380,6 +1469,8 @@ export function Dashboard() {
                 options={auditOptions}
                 dirty={isDirty}
                 saving={false}
+                verifiedLabel={verifiedLabel}
+                onVerify={handleVerify}
                 isFavourite={favouriteData.some(f => f.ytUrl === selectedChannel.id && f.addedBy === currentUser)}
                 onChange={(key, value) => setTempValues(prev => ({ ...prev, [key]: value }))}
                 onSave={handleSave}

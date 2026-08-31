@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { google } from 'googleapis';
 
 function getAuthClient() {
@@ -69,7 +69,10 @@ export async function GET() {
         const [manualRes, diffRes] = await Promise.all([
             sheets.spreadsheets.values.get({
                 spreadsheetId,
-                range: 'Manual Sheet!A2:L',
+                // A2:O, not A2:L — M/N/O carry the audit stamp (Audited By /
+                // Audited At / Audit Hash). Confirmed empty across all 205
+                // rows before being claimed.
+                range: 'Manual Sheet!A2:O',
             }),
             sheets.spreadsheets.values.get({
                 spreadsheetId,
@@ -101,6 +104,9 @@ export async function GET() {
             sharedOn: normalizeDate(row[9]),
             tracking: (row[10] || '').trim(),
             postedBy: (row[11] || '').trim(),
+            auditedBy: (row[12] || '').trim(),
+            auditedAt: (row[13] || '').trim(),
+            auditHash: (row[14] || '').trim(),
             hasHandleDiff: diffUrls.has(normUrl(row[0] || '')),
         }));
 
@@ -113,7 +119,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
     try {
         const body = await request.json();
-        const { ytUrl, type, niche, category, format, producedBy, nicheGroup, verified, tracking, handle } = body;
+        const { ytUrl, type, niche, category, format, producedBy, nicheGroup, verified, tracking, handle, auditedBy, auditedAt, auditHash } = body;
 
         if (!ytUrl) {
             return NextResponse.json({ success: false, error: 'ytUrl is required' }, { status: 400 });
@@ -137,6 +143,19 @@ export async function PATCH(request: Request) {
 
         const sheetRow = rowIndex + 2;
 
+        // Label the audit columns the first time anything is written to them,
+        // so the sheet reads as a sheet rather than three unnamed columns of
+        // timestamps. Idempotent, and mirrors how Pending Deletes seeds its
+        // own header row.
+        if (auditedAt !== undefined) {
+            await sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: 'Manual Sheet!M1:O1',
+                valueInputOption: 'RAW',
+                requestBody: { values: [['Audited By', 'Audited At', 'Audit Hash']] },
+            });
+        }
+
         await sheets.spreadsheets.values.batchUpdate({
             spreadsheetId,
             requestBody: {
@@ -151,6 +170,16 @@ export async function PATCH(request: Request) {
                     { range: `Manual Sheet!I${sheetRow}`, values: [[verified ?? '']] },
                     { range: `Manual Sheet!K${sheetRow}`, values: [[tracking ?? '']] },
                     ...(handle ? [{ range: `Manual Sheet!B${sheetRow}`, values: [[handle]] }] : []),
+                    // Only written when the caller is recording a verification.
+                    // A plain field save leaves the stamp alone, so the hash
+                    // stops matching and the channel returns to the queue.
+                    ...(auditedAt !== undefined
+                        ? [
+                            { range: `Manual Sheet!M${sheetRow}`, values: [[auditedBy ?? '']] },
+                            { range: `Manual Sheet!N${sheetRow}`, values: [[auditedAt ?? '']] },
+                            { range: `Manual Sheet!O${sheetRow}`, values: [[auditHash ?? '']] },
+                        ]
+                        : []),
                 ],
             },
         });
@@ -234,16 +263,23 @@ export async function DELETE(request: Request) {
             },
         });
 
-        if (process.env.N8N_DISCORD_CLEANUP_WEBHOOK_URL) {
-            fetch(process.env.N8N_DISCORD_CLEANUP_WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ytUrl: ytUrl.trim(),
-                    handle: handle || '',
-                    requestedBy: requestedBy || 'unknown',
-                }),
-            }).catch((err) => console.error('n8n webhook call failed:', err));
+        const webhookUrl = process.env.N8N_DISCORD_CLEANUP_WEBHOOK_URL;
+        if (webhookUrl) {
+            after(async () => {
+                try {
+                    await fetch(webhookUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ytUrl: ytUrl.trim(),
+                            handle: handle || '',
+                            requestedBy: requestedBy || 'unknown',
+                        }),
+                    });
+                } catch (err) {
+                    console.error('n8n webhook call failed:', err);
+                }
+            });
         }
 
         return NextResponse.json({ success: true });

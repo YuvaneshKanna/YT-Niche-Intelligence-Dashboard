@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { Check, ChevronDown, ExternalLink, Plus, Search, Star } from "lucide-react"
+import { BadgeCheck, Check, ChevronDown, ExternalLink, Plus, Search, Star } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type { Channel } from "@/lib/constants"
@@ -260,9 +260,11 @@ export function AuditPanel({
   dirty,
   saving,
   isFavourite,
+  verifiedLabel,
   onChange,
   onSave,
   onReset,
+  onVerify,
   onToggleFavourite,
 }: {
   channel: Channel
@@ -273,9 +275,12 @@ export function AuditPanel({
   dirty: boolean
   saving: boolean
   isFavourite: boolean
+  /** "Verified by X on Y" when the stamp still matches the current fields, else null. */
+  verifiedLabel: string | null
   onChange: (key: AuditFieldKey | "verified", value: string) => void
   onSave: () => void
   onReset: () => void
+  onVerify: () => void
   onToggleFavourite: () => void
 }) {
   const [aboutExpanded, setAboutExpanded] = useState(false)
@@ -324,12 +329,33 @@ export function AuditPanel({
 
           <div className="flex flex-shrink-0 items-center gap-2">
             {entry && (
-              <span
-                className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground"
-                title={`Rank ${entry.rank} of ${entry.poolSize} in its pool · combined ${entry.cohort.combinedScore}`}
+              <div
+                className={cn(
+                  "flex flex-col items-center rounded-lg border px-2 py-1 leading-none",
+                  entry.cohort.combinedScore >= 70
+                    ? "border-emerald-500/40 bg-emerald-500/10"
+                    : entry.cohort.combinedScore >= 40
+                      ? "border-sky-500/40 bg-sky-500/10"
+                      : "border-border bg-muted/60"
+                )}
+                title={`Rank ${entry.rank} of ${entry.poolSize} among ${entry.pool === "SHORTS" ? "Shorts" : "long-form"} channels · combined ${entry.cohort.combinedScore} (Channel ${entry.cohort.channelScore}, Niche ${entry.cohort.nicheScore ?? "—"})`}
               >
-                #{entry.rank} · {entry.cohort.combinedScore}
-              </span>
+                <span
+                  className={cn(
+                    "text-base font-bold tabular-nums",
+                    entry.cohort.combinedScore >= 70
+                      ? "text-emerald-300"
+                      : entry.cohort.combinedScore >= 40
+                        ? "text-sky-300"
+                        : "text-muted-foreground"
+                  )}
+                >
+                  {entry.cohort.combinedScore}
+                </span>
+                <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                  #{entry.rank} {entry.pool === "SHORTS" ? "SH" : "LF"}
+                </span>
+              </div>
             )}
             <button
               onClick={onToggleFavourite}
@@ -411,27 +437,57 @@ export function AuditPanel({
           <p className="text-[9px] font-medium uppercase tracking-widest text-muted-foreground">
             Audit
           </p>
-          {dirty ? (
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-amber-400">unsaved</span>
-              <button
-                onClick={onReset}
-                className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                Reset
-              </button>
-              <button
-                onClick={onSave}
-                disabled={saving}
-                className="rounded-md bg-purple-600 px-2.5 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-purple-700 disabled:opacity-50"
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          ) : (
-            <span className="text-[10px] text-muted-foreground">saved</span>
-          )}
+          <div className="flex items-center gap-1.5">
+            {dirty ? (
+              <>
+                <span className="text-[10px] text-amber-400">unsaved</span>
+                <button
+                  onClick={onReset}
+                  className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Reset
+                </button>
+                <button
+                  onClick={onSave}
+                  disabled={saving}
+                  className="rounded-md bg-purple-600 px-2.5 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">saved</span>
+            )}
+
+            {/* Verifying is a separate act from saving. Saving records what the
+                fields say; verifying records that a human watched the videos
+                and stands behind them — including the case where the AI was
+                already right and nothing needed changing, which a field save
+                cannot express. */}
+            <button
+              onClick={onVerify}
+              disabled={saving}
+              title={
+                verifiedLabel
+                  ? `${verifiedLabel}. Verify again to re-stamp with the current values.`
+                  : "Record that you watched the videos and these fields are correct"
+              }
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors disabled:opacity-50",
+                verifiedLabel
+                  ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                  : "border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+              )}
+            >
+              <BadgeCheck className="h-3 w-3" aria-hidden="true" />
+              {verifiedLabel ? "Verified" : "Verify"}
+            </button>
+          </div>
         </div>
+
+        {verifiedLabel && (
+          <p className="mb-2 text-[10px] text-emerald-300/80">{verifiedLabel}</p>
+        )}
 
         <div className="grid grid-cols-2 gap-x-2.5 gap-y-2">
           {FIELDS.map(({ key, label, allowCreate }) => (
