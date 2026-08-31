@@ -23,6 +23,7 @@ import {
   type ContentType,
 } from "@/lib/constants"
 import { useChannels } from "@/lib/useChannels"
+import { normaliseHandle, useRankings } from "@/lib/useRankings"
 import { cn } from "@/lib/utils"
 
 /**
@@ -91,6 +92,12 @@ export function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedChannelId, setSelectedChannelId] = useState<string>("")
   const { channels: initialChannels, loading, setChannels: setChannelsState } = useChannels()
+  // Ranking is fetched independently of the sheet: it comes from Neon, covers
+  // a trailing 90-day window, and must never block or break the audit list —
+  // if it fails, every channel simply has no score and the list keeps its
+  // original order.
+  const { byHandle: rankByHandle, payload: ranking, error: rankingError } = useRankings(90)
+
   const [channelsState, setChannelsState2] = useState<Channel[]>([])
 
   const [masterRules, setMasterRules] = useState<{
@@ -397,6 +404,26 @@ export function Dashboard() {
     })
   }, [channelsState, searchQuery, showUnavailable, showHandleDiff, showNeedsAudit, dateFilter, customRange, filterValues, isEditMode])
 
+  /**
+   * The sidebar order: best combined score first.
+   *
+   * Channels with no ranking sink to the bottom rather than sorting as zero —
+   * "not tracked in Neon" is not the same claim as "scored badly", and the
+   * sheet holds more channels than Stage 2 tracks. Ties and unscored channels
+   * fall back to the original sheet order so the list never reshuffles at random.
+   */
+  const rankedChannels = useMemo(() => {
+    const indexOf = new Map(filteredChannels.map((c, i) => [c.id, i]))
+    return [...filteredChannels].sort((a, b) => {
+      const sa = rankByHandle.get(normaliseHandle(a.handle))
+      const sb = rankByHandle.get(normaliseHandle(b.handle))
+      if (sa && sb) return sa.rank - sb.rank
+      if (sa) return -1
+      if (sb) return 1
+      return (indexOf.get(a.id) ?? 0) - (indexOf.get(b.id) ?? 0)
+    })
+  }, [filteredChannels, rankByHandle])
+
   const needsAuditCount = useMemo(
     () => channelsState.filter(needsAudit).length,
     [channelsState],
@@ -702,17 +729,49 @@ export function Dashboard() {
               {needsAuditCount}
             </span>
           </button>
+
+          {/* What the ranking is actually based on. The window is a cap, not a
+              promise — Neon holds far less than 90 days so far — and saying so
+              here is cheaper than having the order quietly mean something
+              other than what the label claims. */}
+          <p className="mt-1.5 text-[10px] leading-tight text-muted-foreground">
+            {rankingError ? (
+              <span className="text-amber-400/80">
+                Ranking unavailable — showing sheet order. {rankingError}
+              </span>
+            ) : ranking ? (
+              <span
+                title={
+                  `Sorted by combined score: 75% Channel Score (percentile within the ` +
+                  `channel's own format cohort) + 25% Niche Score. ` +
+                  `Window requested ${ranking.requestedDays}d, actually covered ${ranking.coverageDays}d` +
+                  (ranking.coverageStart ? ` (${ranking.coverageStart} to ${ranking.coverageEnd})` : "") +
+                  `. Channels with no Neon metrics sort last.` +
+                  (ranking.warnings.length > 0 ? `\n\n${ranking.warnings.join("\n\n")}` : "")
+                }
+              >
+                Ranked on {ranking.coverageDays}d of data
+                {ranking.coverageDays < ranking.requestedDays &&
+                  ` of ${ranking.requestedDays}d requested`}
+                {" · "}
+                {ranking.channels.length} scored
+              </span>
+            ) : (
+              <span>Loading ranking…</span>
+            )}
+          </p>
         </div>
 
         {/* Channel List */}
         <div className="flex-1 overflow-y-auto">
           <div className="p-2 space-y-1">
-            {filteredChannels.map((channel) => (
+            {rankedChannels.map((channel) => (
               <ChannelCard
                 key={channel.id}
                 channel={channel}
                 isActive={channel.id === selectedChannelId}
                 needsAudit={needsAudit(channel)}
+                score={rankByHandle.get(normaliseHandle(channel.handle))}
                 onClick={() => handleSelectChannel(channel.id)}
                 onDeleteClick={() => setChannelPendingDelete(channel)}
               />

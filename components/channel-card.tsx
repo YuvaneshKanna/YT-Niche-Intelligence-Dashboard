@@ -6,16 +6,63 @@ import { MoreVertical, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import type { Channel } from "@/lib/constants"
+import type { ChannelScore, FormatClass } from "@/lib/scoring/types"
+
+/** Short cohort tag shown beside the score bar. */
+const FORMAT_TAG: Record<FormatClass, string> = {
+  LONG_FORM: "LF",
+  SHORTS: "SH",
+  BOTH: "L+S",
+}
+
+const FORMAT_TITLE: Record<FormatClass, string> = {
+  LONG_FORM: "Scored against the long-form cohort",
+  SHORTS: "Scored against the Shorts cohort",
+  BOTH: "Publishes both — scored against each cohort, blended by view share",
+}
+
+/**
+ * Score band colour. Always paired with the number and the bar length, never
+ * the only carrier of the value — colour alone fails colour-blind readers and
+ * is unreadable at this bar height.
+ */
+function scoreTone(score: number): string {
+  if (score >= 70) return "bg-emerald-400"
+  if (score >= 40) return "bg-sky-400"
+  return "bg-slate-500"
+}
+
+/** The full breakdown, shown on hover over the bar and the score. */
+function scoreTitle(score: ChannelScore): string {
+  const lines = [
+    `Rank #${score.rank} · combined ${score.combinedScore}`,
+    `Channel ${score.channelScore} (75%) · Niche ${score.nicheScore ?? "—"} (25%)`,
+    FORMAT_TITLE[score.formatSplit.formatClass] +
+      ` — ${score.formatSplit.longFormVideos} long-form / ${score.formatSplit.shortsVideos} Shorts tracked`,
+    "",
+    ...score.components.map(
+      (c) => `${c.label}: ${c.score ?? "—"} (${c.displayValue}, weight ${Math.round(c.weight * 100)}%)`
+    ),
+    "",
+    score.createdAt
+      ? `Created ${score.createdAt} · ${score.channelAgeDays}d old · ${score.totalVideos} videos`
+      : `Creation date unavailable · ${score.totalVideos} videos`,
+    `Confidence: ${score.confidence}. ${score.confidenceReason}`,
+  ]
+  return lines.join("\n")
+}
 
 interface ChannelCardProps {
   channel: Channel
   isActive: boolean
   needsAudit?: boolean
+  /** Ranking for this channel. Absent when the channel is not tracked in Neon. */
+  score?: ChannelScore
   onClick: () => void
   onDeleteClick: () => void
 }
 
-export function ChannelCard({ channel, isActive, needsAudit, onClick, onDeleteClick }: ChannelCardProps) {
+export function ChannelCard({ channel, isActive, needsAudit, score, onClick, onDeleteClick }: ChannelCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -69,8 +116,17 @@ export function ChannelCard({ channel, isActive, needsAudit, onClick, onDeleteCl
         )}
       </div>
 
-      {/* Row 1: Channel name — amber dot = missing classification, needs audit */}
+      {/* Row 1: rank · channel name · combined score.
+          Amber dot = missing classification, needs audit. */}
       <p className="font-semibold text-sidebar-foreground truncate text-sm pr-6 flex items-center gap-1.5">
+        {score && (
+          <span
+            className="flex-shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground"
+            title={`Rank ${score.rank} of the tracked channels, by combined score`}
+          >
+            #{score.rank}
+          </span>
+        )}
         {needsAudit && (
           <span
             className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"
@@ -78,6 +134,14 @@ export function ChannelCard({ channel, isActive, needsAudit, onClick, onDeleteCl
           />
         )}
         <span className="truncate">{channel.handle}</span>
+        {score && (
+          <span
+            className="ml-auto flex-shrink-0 text-xs font-semibold tabular-nums text-foreground"
+            title={scoreTitle(score)}
+          >
+            {score.combinedScore}
+          </span>
+        )}
       </p>
 
       {/* Row 2: @handle - removed as it's the same as above, showing name without @ instead */}
@@ -117,7 +181,35 @@ export function ChannelCard({ channel, isActive, needsAudit, onClick, onDeleteCl
         </div>
       )}
 
-      {/* Row 5: Shared on date */}
+      {/* Row 5: combined-score bar + cohort tag. Hover for the full breakdown. */}
+      {score && (
+        <div className="mt-2 flex items-center gap-2" title={scoreTitle(score)}>
+          <div
+            role="meter"
+            aria-valuenow={score.combinedScore}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`Combined score ${score.combinedScore} of 100, rank ${score.rank}`}
+            className="h-1 flex-1 overflow-hidden rounded-full bg-white/10"
+          >
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-300",
+                scoreTone(score.combinedScore),
+                // A low-confidence score is real but thinly evidenced — dim it
+                // rather than hide it, so the bar is never read as certain.
+                score.confidence === "low" && "opacity-50"
+              )}
+              style={{ width: `${Math.max(2, score.combinedScore)}%` }}
+            />
+          </div>
+          <span className="flex-shrink-0 text-[9px] uppercase tracking-wide text-muted-foreground">
+            {FORMAT_TAG[score.formatSplit.formatClass]}
+          </span>
+        </div>
+      )}
+
+      {/* Row 6: Shared on date */}
       <p className="text-xs text-muted-foreground mt-1">
         Shared on {channel.sharedOn}
       </p>
