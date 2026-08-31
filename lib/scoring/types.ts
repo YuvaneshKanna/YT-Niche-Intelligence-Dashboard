@@ -103,8 +103,14 @@ export interface ChannelScore {
   nicheScore: number | null
   /** COMBINED_WEIGHTS applied. This is what the list sorts on. */
   combinedScore: number
-  /** 1-based position in the full ranking. */
+  /**
+   * 1-based position **within this channel's own format cohort**, not across
+   * the whole roster. Long-form and Shorts each have their own #1; filtering
+   * the sidebar to one format therefore yields a contiguous 1, 2, 3 sequence.
+   */
   rank: number
+  /** How many channels are in this channel's cohort — the "of N" for the rank. */
+  cohortSize: number
 
   confidence: ConfidenceLevel
   confidenceReason: string
@@ -117,6 +123,16 @@ export interface ChannelScore {
 
 export interface NicheScore {
   niche: string
+  /**
+   * Which cohort this niche score was computed within.
+   *
+   * Niche scores are per-format for the same reason channel scores are: 9 of
+   * the 23 niches contain both long-form and Shorts channels, and some are
+   * lopsided — Sports is 25 Shorts to 3 long-form. A single blended Sports
+   * score would be set almost entirely by Shorts velocity and then handed to
+   * the three long-form Sports channels as if it described their market.
+   */
+  formatClass: Exclude<FormatClass, "BOTH">
   channelCount: number
   score: number
   components: ScoreComponent[]

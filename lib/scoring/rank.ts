@@ -241,35 +241,49 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
   const lfCohort = buildCohort(lfRows.length > 0 ? lfRows : allRows)
   const shCohort = buildCohort(shRows.length > 0 ? shRows : allRows)
 
-  // ── Niche scores ────────────────────────────────────────────────────────
+  // ── Niche scores, one set per format cohort ─────────────────────────────
+  //
   // Keyed on `niche`, not `niche_group`: the group is blank for 158 of the 189
   // tracked channels, so a group-based score would be null for most of the list.
-  const byNiche = new Map<string, ChannelMetricInput[]>()
-  for (const c of channels) {
-    const key = c.niche.trim() || "Unclassified"
-    const list = byNiche.get(key)
-    if (list) list.push(c)
-    else byNiche.set(key, [c])
-  }
+  //
+  // Computed separately within each cohort, because niches are not
+  // format-pure: 9 of 23 contain both kinds of channel and several are heavily
+  // lopsided. Blending them would push Shorts velocity into the score that
+  // long-form channels in the same niche inherit, which is the cross-format
+  // comparison the whole design exists to avoid — just leaking in through the
+  // niche term instead of the channel term.
+  const nicheScoresFor = (
+    cohortChannels: ChannelMetricInput[],
+    formatClass: Exclude<FormatClass, "BOTH">
+  ): NicheScore[] => {
+    if (cohortChannels.length === 0) return []
 
-  const nicheRaw = [...byNiche.entries()].map(([niche, members]) => {
-    const rows = members.map((m) => raws.get(m.channelId)!)
-    const mean = (pick: (r: RawMetrics) => number) =>
-      rows.reduce((s, r) => s + pick(r), 0) / rows.length
-    return {
-      niche,
-      members,
-      velocity: mean((r) => r.velocity),
-      growth: mean((r) => r.growth),
-      outlierRate: mean((r) => r.outlierRate),
+    const byNiche = new Map<string, ChannelMetricInput[]>()
+    for (const c of cohortChannels) {
+      const key = c.niche.trim() || "Unclassified"
+      const list = byNiche.get(key)
+      if (list) list.push(c)
+      else byNiche.set(key, [c])
     }
-  })
 
-  const nicheVelocities = ascending(nicheRaw.map((n) => n.velocity))
-  const nicheGrowths = ascending(nicheRaw.map((n) => n.growth))
-  const nicheOutliers = ascending(nicheRaw.map((n) => n.outlierRate))
+    const nicheRaw = [...byNiche.entries()].map(([niche, members]) => {
+      const rows = members.map((m) => raws.get(m.channelId)!)
+      const mean = (pick: (r: RawMetrics) => number) =>
+        rows.reduce((s, r) => s + pick(r), 0) / rows.length
+      return {
+        niche,
+        members,
+        velocity: mean((r) => r.velocity),
+        growth: mean((r) => r.growth),
+        outlierRate: mean((r) => r.outlierRate),
+      }
+    })
 
-  const niches: NicheScore[] = nicheRaw.map((n) => {
+    const nicheVelocities = ascending(nicheRaw.map((n) => n.velocity))
+    const nicheGrowths = ascending(nicheRaw.map((n) => n.growth))
+    const nicheOutliers = ascending(nicheRaw.map((n) => n.outlierRate))
+
+    return nicheRaw.map((n) => {
     const components: ScoreComponent[] = [
       {
         key: "velocity",
@@ -303,18 +317,47 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
     )
 
     // A one- or two-channel niche is a sample, not a trend — shrink it toward
-    // neutral the same way a thin channel is shrunk.
+    // neutral the same way a thin channel is shrunk. Per-cohort splitting makes
+    // small niches smaller, so this damp does more work than it used to.
     const w = Math.min(1, n.members.length / 3)
-    return {
-      niche: n.niche,
-      channelCount: n.members.length,
-      score: round1(clamp(NEUTRAL_SCORE + (rawScore - NEUTRAL_SCORE) * w)),
-      components,
-      confidence: (n.members.length >= 5 ? "high" : n.members.length >= 3 ? "medium" : "low") as ConfidenceLevel,
-    }
-  })
+      return {
+        niche: n.niche,
+        formatClass,
+        channelCount: n.members.length,
+        score: round1(clamp(NEUTRAL_SCORE + (rawScore - NEUTRAL_SCORE) * w)),
+        components,
+        confidence: (n.members.length >= 5
+          ? "high"
+          : n.members.length >= 3
+            ? "medium"
+            : "low") as ConfidenceLevel,
+      }
+    })
+  }
 
-  const nicheScoreByName = new Map(niches.map((n) => [n.niche, n.score]))
+  const lfNiches = nicheScoresFor(inClass("LONG_FORM"), "LONG_FORM")
+  const shNiches = nicheScoresFor(inClass("SHORTS"), "SHORTS")
+  const niches: NicheScore[] = [...lfNiches, ...shNiches]
+
+  const lfNicheByName = new Map(lfNiches.map((n) => [n.niche, n.score]))
+  const shNicheByName = new Map(shNiches.map((n) => [n.niche, n.score]))
+
+  /**
+   * Niche score for one channel, taken from its own cohort. A BOTH channel
+   * blends the two the same way its channel score is blended — by its own view
+   * share — and falls back to whichever side exists when its niche has no
+   * channels in the other cohort.
+   */
+  const nicheScoreFor = (niche: string, formatClass: FormatClass, lfWeight: number): number | null => {
+    const key = niche.trim() || "Unclassified"
+    const lf = lfNicheByName.get(key) ?? null
+    const sh = shNicheByName.get(key) ?? null
+    if (formatClass === "LONG_FORM") return lf ?? sh
+    if (formatClass === "SHORTS") return sh ?? lf
+    if (lf === null) return sh
+    if (sh === null) return lf
+    return round1(lf * lfWeight + sh * (1 - lfWeight))
+  }
 
   // ── Channel scores ──────────────────────────────────────────────────────
   const scored: ChannelScore[] = channels.map((c) => {
@@ -378,7 +421,7 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
     const damped = clamp(NEUTRAL_SCORE + (rawScore - NEUTRAL_SCORE) * w)
     const { level, reason } = confidenceOf(c, w)
 
-    const nicheScore = nicheScoreByName.get(c.niche.trim() || "Unclassified") ?? null
+    const nicheScore = nicheScoreFor(c.niche, split.formatClass, lfWeight)
     const combined =
       nicheScore === null
         ? damped
@@ -394,7 +437,8 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
       components,
       nicheScore,
       combinedScore: round1(clamp(combined)),
-      rank: 0, // assigned below
+      rank: 0, // assigned per cohort below
+      cohortSize: 0,
       confidence: level,
       confidenceReason: reason,
       createdAt: c.createdAt,
@@ -404,12 +448,25 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
     }
   })
 
+  // Sorted globally by combined score — the percentile scoring makes the three
+  // classes comparable, so one descending list is valid — but NUMBERED within
+  // each cohort. Long-form and Shorts each get their own #1, and because a
+  // cohort's ranks are assigned in the same score order the list is sorted in,
+  // filtering the sidebar to one format yields a contiguous 1, 2, 3 sequence.
   scored.sort((a, b) => b.combinedScore - a.combinedScore || a.handle.localeCompare(b.handle))
-  scored.forEach((s, i) => {
-    s.rank = i + 1
-  })
 
-  niches.sort((a, b) => b.score - a.score)
+  const cohortCounts = new Map<FormatClass, number>()
+  for (const s of scored) {
+    const fc = s.formatSplit.formatClass
+    const next = (cohortCounts.get(fc) ?? 0) + 1
+    cohortCounts.set(fc, next)
+    s.rank = next
+  }
+  for (const s of scored) {
+    s.cohortSize = cohortCounts.get(s.formatSplit.formatClass) ?? 0
+  }
+
+  niches.sort((a, b) => b.score - a.score || a.formatClass.localeCompare(b.formatClass))
 
   return { channels: scored, niches }
 }

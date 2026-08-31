@@ -35,8 +35,8 @@ function scoreTone(score: number): string {
 /** The full breakdown, shown on hover over the bar and the score. */
 function scoreTitle(score: ChannelScore): string {
   const lines = [
-    `Rank #${score.rank} · combined ${score.combinedScore}`,
-    `Channel ${score.channelScore} (75%) · Niche ${score.nicheScore ?? "—"} (25%)`,
+    `Rank #${score.rank} of ${score.cohortSize} in the ${FORMAT_TAG[score.formatSplit.formatClass]} cohort · combined ${score.combinedScore}`,
+    `Channel ${score.channelScore} (75%) · Niche ${score.nicheScore ?? "—"} (25%) — both scored within this cohort`,
     FORMAT_TITLE[score.formatSplit.formatClass] +
       ` — ${score.formatSplit.longFormVideos} long-form / ${score.formatSplit.shortsVideos} Shorts tracked`,
     "",
@@ -122,9 +122,16 @@ export function ChannelCard({ channel, isActive, needsAudit, score, onClick, onD
         {score && (
           <span
             className="flex-shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground"
-            title={`Rank ${score.rank} of the tracked channels, by combined score`}
+            title={
+              `Rank ${score.rank} of ${score.cohortSize} within the ` +
+              `${FORMAT_TITLE[score.formatSplit.formatClass].toLowerCase()}. ` +
+              "Long-form and Shorts are ranked separately, so each has its own #1."
+            }
           >
             #{score.rank}
+            <span className="ml-0.5 text-[9px] uppercase opacity-70">
+              {FORMAT_TAG[score.formatSplit.formatClass]}
+            </span>
           </span>
         )}
         {needsAudit && (
@@ -203,9 +210,6 @@ export function ChannelCard({ channel, isActive, needsAudit, score, onClick, onD
               style={{ width: `${Math.max(2, score.combinedScore)}%` }}
             />
           </div>
-          <span className="flex-shrink-0 text-[9px] uppercase tracking-wide text-muted-foreground">
-            {FORMAT_TAG[score.formatSplit.formatClass]}
-          </span>
         </div>
       )}
 
