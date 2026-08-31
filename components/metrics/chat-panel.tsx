@@ -49,9 +49,9 @@ const SUGGESTIONS = [
 /**
  * Chat over the niche metrics.
  *
- * The browser talks to /api/chat, which forwards to the sandbox bridge running
- * `claude -p` on your subscription token. No model credentials exist in this
- * component or anywhere else in the deployed app.
+ * The browser talks to /api/chat, which runs Claude Code on your subscription
+ * token inside its own function. No model credentials exist in this component,
+ * and none are ever sent from the browser in subscription mode.
  */
 export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) {
   const [turns, setTurns] = useState<Turn[]>([])
@@ -161,7 +161,7 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
           question: q,
           chatId: chatIdRef.current,
           range,
-          // Only meaningful to the sandbox bridge — the API path picks its
+          // Only meaningful in subscription mode — the API path picks its
           // model up from the x-anthropic-model header already in chatHeaders.
           ...(mode === "subscription" ? { model: model || undefined, effort: effort || undefined } : {}),
         }),

@@ -1,28 +1,51 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { NextRequest } from "next/server"
 import { aggregate } from "@/lib/metrics/aggregate"
-import { MetricsConfigError, readChannelSnapshots, readVideoSnapshots } from "@/lib/metrics/sheets"
+import { MetricsConfigError } from "@/lib/metrics/db"
+import {
+  MetricsConfigError as SheetsConfigError,
+  readChannelSnapshots as readChannelSheets,
+  readVideoSnapshots as readVideoSheets,
+} from "@/lib/metrics/sheets"
+import {
+  readChannelSnapshots as readChannelNeon,
+  readVideoSnapshots as readVideoNeon,
+} from "@/lib/metrics/neon"
 import { RANGE_DAYS, type MetricsPayload, type RangeKey } from "@/lib/metrics/types"
+import { streamFromSubscription, subscriptionChatReady } from "@/lib/chat/claude-subscription"
 
 // Chat over the niche metrics.
 //
-// This route holds NO model credentials. It builds the metrics context and
-// forwards the question to the sandbox bridge (sandbox/server.mjs), which runs
-// `claude -p` against your CLAUDE_CODE_OAUTH_TOKEN. The token lives only in
-// that container.
+// Subscription mode runs the Claude Code harness inside this function via the
+// Claude Agent SDK (lib/chat/claude-subscription.ts), authenticated by
+// CLAUDE_CODE_OAUTH_TOKEN. Nothing has to be running anywhere else — no bridge,
+// no tunnel, no always-on machine.
 //
-// Required env here:
-//   SANDBOX_CHAT_URL        e.g. https://your-sandbox.example.com
-//   SANDBOX_SHARED_SECRET   must match the sandbox
+// Required env for subscription mode:
+//   CLAUDE_CODE_OAUTH_TOKEN   from `claude setup-token`
 // Optional:
-//   CHAT_ACCESS_TOKEN       gate — see the access check below
+//   SANDBOX_CHAT_URL          legacy self-hosted bridge (sandbox/), used only
+//   SANDBOX_SHARED_SECRET     when no OAuth token is set here
+//   CHAT_ACCESS_TOKEN         gate — see the access check below
+//   METRICS_SOURCE            "sheets" to read metrics from Google Sheets
+//                             instead of Neon
 
-export const maxDuration = 120
+export const maxDuration = 300
+
+// Source of the Stage 2 data, kept in step with /api/metrics: Neon is the
+// default and METRICS_SOURCE=sheets falls back to the Google Sheets reader.
+// The two readers are interface-identical, so chat and the dashboard answer
+// from the same rows instead of drifting apart.
+const SOURCE: "neon" | "sheets" =
+  (process.env.METRICS_SOURCE ?? "neon").toLowerCase() === "sheets" ? "sheets" : "neon"
+
+const readChannelSnapshots = SOURCE === "sheets" ? readChannelSheets : readChannelNeon
+const readVideoSnapshots = SOURCE === "sheets" ? readVideoSheets : readVideoNeon
 
 const VIDEOS_PER_FORMAT = 60
 const CONTEXT_TTL_MS = 30 * 60 * 1000
 
-let contextCache: { range: RangeKey; text: string; expiresAt: number } | null = null
+let contextCache: { range: RangeKey; source: string; text: string; expiresAt: number } | null = null
 
 function buildContext(data: MetricsPayload): string {
   const lines: string[] = []
@@ -90,7 +113,12 @@ function buildContext(data: MetricsPayload): string {
 }
 
 async function getContext(range: RangeKey): Promise<string> {
-  if (contextCache && contextCache.range === range && contextCache.expiresAt > Date.now()) {
+  if (
+    contextCache &&
+    contextCache.range === range &&
+    contextCache.source === SOURCE &&
+    contextCache.expiresAt > Date.now()
+  ) {
     return contextCache.text
   }
 
@@ -110,7 +138,7 @@ async function getContext(range: RangeKey): Promise<string> {
     ...result,
   })
 
-  contextCache = { range, text, expiresAt: Date.now() + CONTEXT_TTL_MS }
+  contextCache = { range, source: SOURCE, text, expiresAt: Date.now() + CONTEXT_TTL_MS }
   return text
 }
 
@@ -210,6 +238,12 @@ export async function POST(request: NextRequest) {
   const sandboxUrl = process.env.SANDBOX_CHAT_URL
   const secret = process.env.SANDBOX_SHARED_SECRET
 
+  // In-function is the default: it needs one env var and nothing else running.
+  // The bridge stays available for anyone already on it, but only when no
+  // token is set here — otherwise a leftover SANDBOX_CHAT_URL would silently
+  // keep routing chat at a machine the user thought they had retired.
+  const inFunction = subscriptionChatReady()
+
   if (mode === "api" && !apiKey) {
     return json(
       {
@@ -220,15 +254,14 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  if (mode === "subscription" && (!sandboxUrl || !secret)) {
+  if (mode === "subscription" && !inFunction && (!sandboxUrl || !secret)) {
     return json(
       {
         error:
-          "Subscription chat is not configured. Start the bridge from sandbox/ with your " +
-          "CLAUDE_CODE_OAUTH_TOKEN (see Settings for the exact command), expose it over HTTPS, " +
-          "then set SANDBOX_CHAT_URL and SANDBOX_SHARED_SECRET in Vercel. " +
+          "Subscription chat is not configured. Run `claude setup-token`, then set the token " +
+          "as CLAUDE_CODE_OAUTH_TOKEN in Vercel (Settings has the exact command) and redeploy. " +
           "Or switch to API-key mode in Settings.",
-        code: "NO_SANDBOX",
+        code: "NO_TOKEN",
       },
       503
     )
@@ -266,7 +299,7 @@ export async function POST(request: NextRequest) {
   try {
     context = await getContext(range)
   } catch (err: unknown) {
-    if (err instanceof MetricsConfigError) {
+    if (err instanceof MetricsConfigError || err instanceof SheetsConfigError) {
       return json({ error: err.message, code: "CONFIG" }, 503)
     }
     return json({ error: err instanceof Error ? err.message : "Failed to load metrics" }, 500)
@@ -274,6 +307,17 @@ export async function POST(request: NextRequest) {
 
   if (mode === "api") {
     return streamFromApi(apiKey, model, context, question)
+  }
+
+  if (inFunction) {
+    return streamFromSubscription({
+      question,
+      context,
+      chatId: body.chatId || crypto.randomUUID(),
+      model: body.model,
+      effort: body.effort,
+      signal: request.signal,
+    })
   }
 
   let upstream: Response
