@@ -1,11 +1,12 @@
 import {
   COMBINED_WEIGHTS,
-  FORMAT_BANDS,
+  MEASURED_LONG_FORM_MIN_SHARE,
   MIN_DAYS_FOR_FULL_CONFIDENCE,
   MIN_VIDEOS_FOR_FULL_CONFIDENCE,
   NEUTRAL_SCORE,
   type ChannelMetricInput,
   type ChannelScore,
+  type CohortScore,
   type ConfidenceLevel,
   type FormatClass,
   type FormatSplit,
@@ -15,6 +16,11 @@ import {
 
 // The ranking engine. Pure: no I/O, no clock reads except the one `todayMs`
 // passed in, so it is deterministic for a given input set.
+//
+// It produces TWO scores per channel — one against the long-form cohort, one
+// against the Shorts cohort — and assigns no rank at all. Rank is the client's
+// job, because only the client knows each channel's sheet Type, and rank must
+// agree with the field the sidebar filters on. See the header of ./types.
 
 const clamp = (v: number, lo = 0, hi = 100) => Math.min(hi, Math.max(lo, v))
 const safeDiv = (a: number, b: number) => (b === 0 ? 0 : a / b)
@@ -108,34 +114,30 @@ function rawMetrics(c: ChannelMetricInput, todayMs: number): RawMetrics {
 }
 
 /**
- * Format class from the share of the channel's videos that are long-form.
- * See the FormatSplit docs in ./types for why view share is not used here.
+ * The measured long-form/Shorts mix. Shapes the two cohorts; does not decide
+ * which pool a channel is ranked in — see the header of ./types.
  */
-export function classifyFormat(c: ChannelMetricInput): FormatSplit {
+export function measureFormat(c: ChannelMetricInput): FormatSplit {
   const videoTotal = c.longFormVideos + c.shortsVideos
   const viewTotal = c.longFormViews + c.shortsViews
   const videoShare = videoTotal === 0 ? null : c.longFormVideos / videoTotal
   const viewShare = viewTotal === 0 ? null : c.longFormViews / viewTotal
 
-  let formatClass: FormatClass
-  if (videoShare === null) {
-    // No tracked videos at all — fall back to whichever way the views lean,
-    // and to long-form when there is nothing to go on.
-    formatClass = viewShare !== null && viewShare <= FORMAT_BANDS.shortsMax ? "SHORTS" : "LONG_FORM"
-  } else if (videoShare >= FORMAT_BANDS.longFormMin) {
-    formatClass = "LONG_FORM"
-  } else if (videoShare <= FORMAT_BANDS.shortsMax) {
-    formatClass = "SHORTS"
-  } else {
-    formatClass = "BOTH"
-  }
+  const measuredClass: FormatClass =
+    videoShare === null
+      ? viewShare !== null && viewShare < MEASURED_LONG_FORM_MIN_SHARE
+        ? "SHORTS"
+        : "LONG_FORM"
+      : videoShare >= MEASURED_LONG_FORM_MIN_SHARE
+        ? "LONG_FORM"
+        : "SHORTS"
 
   return {
-    formatClass,
     longFormVideos: c.longFormVideos,
     shortsVideos: c.shortsVideos,
     videoShare,
     viewShare,
+    measuredClass,
   }
 }
 
@@ -168,7 +170,10 @@ function scoreAgainst(raw: RawMetrics, cohort: Cohort): Record<keyof RawMetrics,
  * renormalised across those present. A channel missing its created date is
  * therefore scored on the remaining four rather than penalised to zero.
  */
-function weightedMean(scores: Record<string, number | null>, weights: Record<string, number>): number {
+function weightedMean(
+  scores: Record<string, number | null>,
+  weights: Record<string, number>
+): number {
   let sum = 0
   let weight = 0
   for (const key of Object.keys(weights)) {
@@ -194,8 +199,10 @@ function confidenceWeight(c: ChannelMetricInput): number {
 
 function confidenceOf(c: ChannelMetricInput, w: number): { level: ConfidenceLevel; reason: string } {
   const bits: string[] = []
-  if (c.totalVideos < MIN_VIDEOS_FOR_FULL_CONFIDENCE) bits.push(`only ${c.totalVideos} video(s) published`)
-  if (c.coverageDays < MIN_DAYS_FOR_FULL_CONFIDENCE) bits.push(`only ${c.coverageDays} day(s) of snapshots`)
+  if (c.totalVideos < MIN_VIDEOS_FOR_FULL_CONFIDENCE)
+    bits.push(`only ${c.totalVideos} video(s) published`)
+  if (c.coverageDays < MIN_DAYS_FOR_FULL_CONFIDENCE)
+    bits.push(`only ${c.coverageDays} day(s) of snapshots`)
   if (c.createdAt === null) bits.push("no channel creation date")
   if (c.trackedVideos === 0) bits.push("no videos tracked in this window")
 
@@ -225,36 +232,27 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
   const splits = new Map<string, FormatSplit>()
   for (const c of channels) {
     raws.set(c.channelId, rawMetrics(c, todayMs))
-    splits.set(c.channelId, classifyFormat(c))
+    splits.set(c.channelId, measureFormat(c))
   }
 
-  const inClass = (fc: FormatClass) =>
-    channels.filter((c) => splits.get(c.channelId)!.formatClass === fc)
+  const measuredIn = (fc: FormatClass) =>
+    channels.filter((c) => splits.get(c.channelId)!.measuredClass === fc)
 
-  // Cohorts stay pure: BOTH channels are scored against the two single-format
-  // cohorts rather than forming a third, which would be only a handful of
-  // members and give percentiles in coarse 12% steps.
-  const lfRows = inClass("LONG_FORM").map((c) => raws.get(c.channelId)!)
-  const shRows = inClass("SHORTS").map((c) => raws.get(c.channelId)!)
+  const lfChannels = measuredIn("LONG_FORM")
+  const shChannels = measuredIn("SHORTS")
   const allRows = channels.map((c) => raws.get(c.channelId)!)
 
-  const lfCohort = buildCohort(lfRows.length > 0 ? lfRows : allRows)
-  const shCohort = buildCohort(shRows.length > 0 ? shRows : allRows)
+  const cohorts: Record<FormatClass, Cohort> = {
+    LONG_FORM: buildCohort(lfChannels.length > 0 ? lfChannels.map((c) => raws.get(c.channelId)!) : allRows),
+    SHORTS: buildCohort(shChannels.length > 0 ? shChannels.map((c) => raws.get(c.channelId)!) : allRows),
+  }
 
-  // ── Niche scores, one set per format cohort ─────────────────────────────
-  //
+  // ── Niche scores, one set per pool ──────────────────────────────────────
   // Keyed on `niche`, not `niche_group`: the group is blank for 158 of the 189
   // tracked channels, so a group-based score would be null for most of the list.
-  //
-  // Computed separately within each cohort, because niches are not
-  // format-pure: 9 of 23 contain both kinds of channel and several are heavily
-  // lopsided. Blending them would push Shorts velocity into the score that
-  // long-form channels in the same niche inherit, which is the cross-format
-  // comparison the whole design exists to avoid — just leaking in through the
-  // niche term instead of the channel term.
   const nicheScoresFor = (
     cohortChannels: ChannelMetricInput[],
-    formatClass: Exclude<FormatClass, "BOTH">
+    formatClass: FormatClass
   ): NicheScore[] => {
     if (cohortChannels.length === 0) return []
 
@@ -284,42 +282,42 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
     const nicheOutliers = ascending(nicheRaw.map((n) => n.outlierRate))
 
     return nicheRaw.map((n) => {
-    const components: ScoreComponent[] = [
-      {
-        key: "velocity",
-        label: "Mean view velocity",
-        score: percentileOf(n.velocity, nicheVelocities),
-        weight: 0.5,
-        displayValue: `${fmtNum(n.velocity)}/day`,
-        note: "Average daily view gain per channel in this niche.",
-      },
-      {
-        key: "growth",
-        label: "Mean subscriber growth",
-        score: percentileOf(n.growth, nicheGrowths),
-        weight: 0.3,
-        displayValue: `${(n.growth * 100).toFixed(2)}%`,
-        note: "Average relative subscriber gain per channel across the window.",
-      },
-      {
-        key: "outlierRate",
-        label: "Mean outlier rate",
-        score: percentileOf(n.outlierRate, nicheOutliers),
-        weight: 0.2,
-        displayValue: `${(n.outlierRate * 100).toFixed(1)}%`,
-        note: "Share of tracked videos flagged as outliers, averaged per channel.",
-      },
-    ]
+      const components: ScoreComponent[] = [
+        {
+          key: "velocity",
+          label: "Mean view velocity",
+          score: percentileOf(n.velocity, nicheVelocities),
+          weight: 0.5,
+          displayValue: `${fmtNum(n.velocity)}/day`,
+          note: "Average daily view gain per channel in this niche and pool.",
+        },
+        {
+          key: "growth",
+          label: "Mean subscriber growth",
+          score: percentileOf(n.growth, nicheGrowths),
+          weight: 0.3,
+          displayValue: `${(n.growth * 100).toFixed(2)}%`,
+          note: "Average relative subscriber gain per channel across the window.",
+        },
+        {
+          key: "outlierRate",
+          label: "Mean outlier rate",
+          score: percentileOf(n.outlierRate, nicheOutliers),
+          weight: 0.2,
+          displayValue: `${(n.outlierRate * 100).toFixed(1)}%`,
+          note: "Share of tracked videos flagged as outliers, averaged per channel.",
+        },
+      ]
 
-    const rawScore = weightedMean(
-      Object.fromEntries(components.map((c) => [c.key, c.score])),
-      Object.fromEntries(components.map((c) => [c.key, c.weight]))
-    )
+      const rawScore = weightedMean(
+        Object.fromEntries(components.map((c) => [c.key, c.score])),
+        Object.fromEntries(components.map((c) => [c.key, c.weight]))
+      )
 
-    // A one- or two-channel niche is a sample, not a trend — shrink it toward
-    // neutral the same way a thin channel is shrunk. Per-cohort splitting makes
-    // small niches smaller, so this damp does more work than it used to.
-    const w = Math.min(1, n.members.length / 3)
+      // A one- or two-channel niche is a sample, not a trend — shrink it toward
+      // neutral the same way a thin channel is shrunk. Splitting per pool makes
+      // small niches smaller, so this damp does more work than it used to.
+      const w = Math.min(1, n.members.length / 3)
       return {
         niche: n.niche,
         formatClass,
@@ -335,54 +333,29 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
     })
   }
 
-  const lfNiches = nicheScoresFor(inClass("LONG_FORM"), "LONG_FORM")
-  const shNiches = nicheScoresFor(inClass("SHORTS"), "SHORTS")
+  const lfNiches = nicheScoresFor(lfChannels, "LONG_FORM")
+  const shNiches = nicheScoresFor(shChannels, "SHORTS")
   const niches: NicheScore[] = [...lfNiches, ...shNiches]
 
-  const lfNicheByName = new Map(lfNiches.map((n) => [n.niche, n.score]))
-  const shNicheByName = new Map(shNiches.map((n) => [n.niche, n.score]))
-
-  /**
-   * Niche score for one channel, taken from its own cohort. A BOTH channel
-   * blends the two the same way its channel score is blended — by its own view
-   * share — and falls back to whichever side exists when its niche has no
-   * channels in the other cohort.
-   */
-  const nicheScoreFor = (niche: string, formatClass: FormatClass, lfWeight: number): number | null => {
-    const key = niche.trim() || "Unclassified"
-    const lf = lfNicheByName.get(key) ?? null
-    const sh = shNicheByName.get(key) ?? null
-    if (formatClass === "LONG_FORM") return lf ?? sh
-    if (formatClass === "SHORTS") return sh ?? lf
-    if (lf === null) return sh
-    if (sh === null) return lf
-    return round1(lf * lfWeight + sh * (1 - lfWeight))
+  const nicheByPool: Record<FormatClass, Map<string, number>> = {
+    LONG_FORM: new Map(lfNiches.map((n) => [n.niche, n.score])),
+    SHORTS: new Map(shNiches.map((n) => [n.niche, n.score])),
   }
 
-  // ── Channel scores ──────────────────────────────────────────────────────
+  // ── Channel scores, computed against BOTH cohorts ───────────────────────
   const scored: ChannelScore[] = channels.map((c) => {
     const raw = raws.get(c.channelId)!
     const split = splits.get(c.channelId)!
+    const w = confidenceWeight(c)
+    const { level, reason } = confidenceOf(c, w)
+    const nicheKey = c.niche.trim() || "Unclassified"
 
-    const lfScores = scoreAgainst(raw, lfCohort)
-    const shScores = scoreAgainst(raw, shCohort)
+    const forCohort = (formatClass: FormatClass): CohortScore => {
+      const scores = scoreAgainst(raw, cohorts[formatClass])
 
-    // A BOTH channel is scored twice — once against each single-format cohort —
-    // and the two are blended by its own long-form/Shorts view share. This is
-    // the one place view share is valid: it is comparing a channel against
-    // itself, so the structural view gap between formats cancels out.
-    const lfWeight =
-      split.formatClass === "LONG_FORM" ? 1 : split.formatClass === "SHORTS" ? 0 : (split.viewShare ?? 0.5)
-
-    const blended: Record<string, number | null> = {}
-    for (const key of Object.keys(COMPONENT_WEIGHTS) as (keyof RawMetrics)[]) {
-      const a = lfScores[key]
-      const b = shScores[key]
-      blended[key] = a === null || b === null ? null : a * lfWeight + b * (1 - lfWeight)
-    }
-
-    const components: ScoreComponent[] = (Object.keys(COMPONENT_WEIGHTS) as (keyof RawMetrics)[]).map(
-      (key) => {
+      const components: ScoreComponent[] = (
+        Object.keys(COMPONENT_WEIGHTS) as (keyof RawMetrics)[]
+      ).map((key) => {
         const value = raw[key]
         let displayValue: string
         switch (key) {
@@ -396,8 +369,7 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
             displayValue = `${(raw.growth * 100).toFixed(2)}%`
             break
           case "freshness":
-            displayValue =
-              value === null ? "unknown" : `${Math.abs(value as number)}d old`
+            displayValue = value === null ? "unknown" : `${Math.abs(value as number)}d old`
             break
           default:
             displayValue = `${(raw.outlierRate * 100).toFixed(1)}%`
@@ -405,40 +377,52 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
         return {
           key,
           label: COMPONENT_LABELS[key],
-          score: blended[key] === null ? null : round1(blended[key] as number),
+          score: scores[key] === null ? null : round1(scores[key] as number),
           weight: COMPONENT_WEIGHTS[key],
           displayValue,
           note:
             key === "freshness"
               ? "Days since the channel was created, from the YouTube API. Younger scores higher."
-              : `Percentile against the ${split.formatClass.toLowerCase().replace("_", "-")} cohort.`,
+              : `Percentile against the ${formatClass === "LONG_FORM" ? "long-form" : "Shorts"} pool.`,
         }
+      })
+
+      const rawScore = weightedMean(
+        scores as Record<string, number | null>,
+        COMPONENT_WEIGHTS as Record<string, number>
+      )
+      const damped = clamp(NEUTRAL_SCORE + (rawScore - NEUTRAL_SCORE) * w)
+
+      // Fall back to the other pool's niche score when this niche has no
+      // channels measured into this one — better a cross-pool estimate than a
+      // silent null that drops the niche term entirely.
+      const nicheScore =
+        nicheByPool[formatClass].get(nicheKey) ??
+        nicheByPool[formatClass === "LONG_FORM" ? "SHORTS" : "LONG_FORM"].get(nicheKey) ??
+        null
+
+      const combined =
+        nicheScore === null
+          ? damped
+          : COMBINED_WEIGHTS.channel * damped + COMBINED_WEIGHTS.niche * nicheScore
+
+      return {
+        formatClass,
+        channelScore: round1(damped),
+        channelScoreRaw: round1(rawScore),
+        components,
+        nicheScore,
+        combinedScore: round1(clamp(combined)),
       }
-    )
-
-    const rawScore = weightedMean(blended, COMPONENT_WEIGHTS as Record<string, number>)
-    const w = confidenceWeight(c)
-    const damped = clamp(NEUTRAL_SCORE + (rawScore - NEUTRAL_SCORE) * w)
-    const { level, reason } = confidenceOf(c, w)
-
-    const nicheScore = nicheScoreFor(c.niche, split.formatClass, lfWeight)
-    const combined =
-      nicheScore === null
-        ? damped
-        : COMBINED_WEIGHTS.channel * damped + COMBINED_WEIGHTS.niche * nicheScore
+    }
 
     return {
       channelId: c.channelId,
       handle: c.handle,
       niche: c.niche,
       formatSplit: split,
-      channelScore: round1(damped),
-      channelScoreRaw: round1(rawScore),
-      components,
-      nicheScore,
-      combinedScore: round1(clamp(combined)),
-      rank: 0, // assigned per cohort below
-      cohortSize: 0,
+      asLongForm: forCohort("LONG_FORM"),
+      asShorts: forCohort("SHORTS"),
       confidence: level,
       confidenceReason: reason,
       createdAt: c.createdAt,
@@ -447,24 +431,6 @@ export function rankChannels({ channels, todayMs }: RankInput): RankResult {
       coverageDays: c.coverageDays,
     }
   })
-
-  // Sorted globally by combined score — the percentile scoring makes the three
-  // classes comparable, so one descending list is valid — but NUMBERED within
-  // each cohort. Long-form and Shorts each get their own #1, and because a
-  // cohort's ranks are assigned in the same score order the list is sorted in,
-  // filtering the sidebar to one format yields a contiguous 1, 2, 3 sequence.
-  scored.sort((a, b) => b.combinedScore - a.combinedScore || a.handle.localeCompare(b.handle))
-
-  const cohortCounts = new Map<FormatClass, number>()
-  for (const s of scored) {
-    const fc = s.formatSplit.formatClass
-    const next = (cohortCounts.get(fc) ?? 0) + 1
-    cohortCounts.set(fc, next)
-    s.rank = next
-  }
-  for (const s of scored) {
-    s.cohortSize = cohortCounts.get(s.formatSplit.formatClass) ?? 0
-  }
 
   niches.sort((a, b) => b.score - a.score || a.formatClass.localeCompare(b.formatClass))
 

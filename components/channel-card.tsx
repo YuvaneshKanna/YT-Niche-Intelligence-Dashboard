@@ -6,20 +6,11 @@ import { MoreVertical, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import type { Channel } from "@/lib/constants"
-import type { ChannelScore, FormatClass } from "@/lib/scoring/types"
+import type { RankedEntry } from "@/lib/useRankings"
 
-/** Short cohort tag shown beside the score bar. */
-const FORMAT_TAG: Record<FormatClass, string> = {
-  LONG_FORM: "LF",
-  SHORTS: "SH",
-  BOTH: "L+S",
-}
-
-const FORMAT_TITLE: Record<FormatClass, string> = {
-  LONG_FORM: "Scored against the long-form cohort",
-  SHORTS: "Scored against the Shorts cohort",
-  BOTH: "Publishes both — scored against each cohort, blended by view share",
-}
+/** Pool tag shown beside the rank. Two pools only — never a combined bucket. */
+const POOL_TAG = { LONG_FORM: "LF", SHORTS: "SH" } as const
+const POOL_NAME = { LONG_FORM: "long-form", SHORTS: "Shorts" } as const
 
 /**
  * Score band colour. Always paired with the number and the bar length, never
@@ -32,23 +23,39 @@ function scoreTone(score: number): string {
   return "bg-slate-500"
 }
 
-/** The full breakdown, shown on hover over the bar and the score. */
-function scoreTitle(score: ChannelScore): string {
+/** The full breakdown, shown on hover over the rank, the score and the bar. */
+function scoreTitle(entry: RankedEntry): string {
+  const { score, cohort, rank, poolSize, pool } = entry
+  const split = score.formatSplit
+  const measuredDiffers = split.measuredClass !== pool
+
   const lines = [
-    `Rank #${score.rank} of ${score.cohortSize} in the ${FORMAT_TAG[score.formatSplit.formatClass]} cohort · combined ${score.combinedScore}`,
-    `Channel ${score.channelScore} (75%) · Niche ${score.nicheScore ?? "—"} (25%) — both scored within this cohort`,
-    FORMAT_TITLE[score.formatSplit.formatClass] +
-      ` — ${score.formatSplit.longFormVideos} long-form / ${score.formatSplit.shortsVideos} Shorts tracked`,
+    `#${rank} of ${poolSize} in the ${POOL_NAME[pool]} pool · combined ${cohort.combinedScore}`,
+    `Channel ${cohort.channelScore} (75%) · Niche ${cohort.nicheScore ?? "—"} (25%)`,
+    `Ranked only against other ${POOL_NAME[pool]} channels — the two pools never mix.`,
     "",
-    ...score.components.map(
-      (c) => `${c.label}: ${c.score ?? "—"} (${c.displayValue}, weight ${Math.round(c.weight * 100)}%)`
+    ...cohort.components.map(
+      (c) =>
+        `${c.label}: ${c.score ?? "—"} (${c.displayValue}, weight ${Math.round(c.weight * 100)}%)`
     ),
     "",
+    `Tracked uploads: ${split.longFormVideos} long-form / ${split.shortsVideos} Shorts`,
+  ]
+
+  // Worth surfacing: the sheet's Type decides the pool, so when the measured
+  // mix disagrees the Type field may simply be out of date.
+  if (measuredDiffers) {
+    lines.push(
+      `Note: uploads look mostly ${POOL_NAME[split.measuredClass]}, but Type says ${POOL_NAME[pool]}. Pool follows Type.`
+    )
+  }
+
+  lines.push(
     score.createdAt
       ? `Created ${score.createdAt} · ${score.channelAgeDays}d old · ${score.totalVideos} videos`
       : `Creation date unavailable · ${score.totalVideos} videos`,
-    `Confidence: ${score.confidence}. ${score.confidenceReason}`,
-  ]
+    `Confidence: ${score.confidence}. ${score.confidenceReason}`
+  )
   return lines.join("\n")
 }
 
@@ -56,13 +63,13 @@ interface ChannelCardProps {
   channel: Channel
   isActive: boolean
   needsAudit?: boolean
-  /** Ranking for this channel. Absent when the channel is not tracked in Neon. */
-  score?: ChannelScore
+  /** Placement for this channel. Absent when the channel is not tracked in Neon. */
+  entry?: RankedEntry
   onClick: () => void
   onDeleteClick: () => void
 }
 
-export function ChannelCard({ channel, isActive, needsAudit, score, onClick, onDeleteClick }: ChannelCardProps) {
+export function ChannelCard({ channel, isActive, needsAudit, entry, onClick, onDeleteClick }: ChannelCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -119,19 +126,13 @@ export function ChannelCard({ channel, isActive, needsAudit, score, onClick, onD
       {/* Row 1: rank · channel name · combined score.
           Amber dot = missing classification, needs audit. */}
       <p className="font-semibold text-sidebar-foreground truncate text-sm pr-6 flex items-center gap-1.5">
-        {score && (
+        {entry && (
           <span
             className="flex-shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground"
-            title={
-              `Rank ${score.rank} of ${score.cohortSize} within the ` +
-              `${FORMAT_TITLE[score.formatSplit.formatClass].toLowerCase()}. ` +
-              "Long-form and Shorts are ranked separately, so each has its own #1."
-            }
+            title={scoreTitle(entry)}
           >
-            #{score.rank}
-            <span className="ml-0.5 text-[9px] uppercase opacity-70">
-              {FORMAT_TAG[score.formatSplit.formatClass]}
-            </span>
+            #{entry.rank}
+            <span className="ml-0.5 text-[9px] uppercase opacity-70">{POOL_TAG[entry.pool]}</span>
           </span>
         )}
         {needsAudit && (
@@ -141,12 +142,12 @@ export function ChannelCard({ channel, isActive, needsAudit, score, onClick, onD
           />
         )}
         <span className="truncate">{channel.handle}</span>
-        {score && (
+        {entry && (
           <span
             className="ml-auto flex-shrink-0 text-xs font-semibold tabular-nums text-foreground"
-            title={scoreTitle(score)}
+            title={scoreTitle(entry)}
           >
-            {score.combinedScore}
+            {entry.cohort.combinedScore}
           </span>
         )}
       </p>
@@ -189,25 +190,25 @@ export function ChannelCard({ channel, isActive, needsAudit, score, onClick, onD
       )}
 
       {/* Row 5: combined-score bar + cohort tag. Hover for the full breakdown. */}
-      {score && (
-        <div className="mt-2 flex items-center gap-2" title={scoreTitle(score)}>
+      {entry && (
+        <div className="mt-2 flex items-center gap-2" title={scoreTitle(entry)}>
           <div
             role="meter"
-            aria-valuenow={score.combinedScore}
+            aria-valuenow={entry.cohort.combinedScore}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={`Combined score ${score.combinedScore} of 100, rank ${score.rank}`}
+            aria-label={`Combined score ${entry.cohort.combinedScore} of 100, ranked ${entry.rank} of ${entry.poolSize} among ${POOL_NAME[entry.pool]} channels`}
             className="h-1 flex-1 overflow-hidden rounded-full bg-white/10"
           >
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-300",
-                scoreTone(score.combinedScore),
+                scoreTone(entry.cohort.combinedScore),
                 // A low-confidence score is real but thinly evidenced — dim it
                 // rather than hide it, so the bar is never read as certain.
-                score.confidence === "low" && "opacity-50"
+                entry.score.confidence === "low" && "opacity-50"
               )}
-              style={{ width: `${Math.max(2, score.combinedScore)}%` }}
+              style={{ width: `${Math.max(2, entry.cohort.combinedScore)}%` }}
             />
           </div>
         </div>

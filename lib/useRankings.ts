@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
-import type { ChannelScore, RankingPayload } from "./scoring/types"
+import type { Channel, ChannelType } from "./constants"
+import type { ChannelScore, CohortScore, FormatClass, RankingPayload } from "./scoring/types"
 
 /**
  * Channel ranking for the Page 1 sidebar.
@@ -15,9 +16,24 @@ export function normaliseHandle(handle: string): string {
   return handle.trim().toLowerCase().replace(/^@/, "")
 }
 
+/** The sheet's Type column is the authority on which pool a channel is ranked in. */
+export function poolOf(type: ChannelType): FormatClass {
+  return type === "Shorts" ? "SHORTS" : "LONG_FORM"
+}
+
+/** One channel's placement: which pool, its score in that pool, and its position. */
+export interface RankedEntry {
+  score: ChannelScore
+  pool: FormatClass
+  /** The cohort result matching `pool`. */
+  cohort: CohortScore
+  /** 1-based position within `pool`, over every channel of that Type in the sheet. */
+  rank: number
+  /** How many channels share this pool — the "of N". */
+  poolSize: number
+}
+
 export interface RankingsState {
-  /** Score per normalised handle. Channels absent from Neon are simply not in the map. */
-  byHandle: Map<string, ChannelScore>
   payload: RankingPayload | null
   loading: boolean
   error: string | null
@@ -55,11 +71,57 @@ export function useRankings(days = 90): RankingsState {
     }
   }, [days])
 
-  const byHandle = useMemo(() => {
-    const map = new Map<string, ChannelScore>()
-    for (const c of payload?.channels ?? []) map.set(normaliseHandle(c.handle), c)
-    return map
-  }, [payload])
+  return { payload, loading, error }
+}
 
-  return { byHandle, payload, loading, error }
+/**
+ * Place every channel into exactly one of two pools and number it within that
+ * pool. There is no third pool: a channel that publishes both formats still
+ * competes in the one its sheet Type names.
+ *
+ * The pool comes from the sheet's Type column rather than from measured video
+ * counts, so that ranking and the sidebar's Type filter read the same field.
+ * That is what guarantees a contiguous 1, 2, 3 when the list is filtered to one
+ * Type — measured counts can and do disagree with the sheet's label, and any
+ * disagreement would put a gap in the filtered sequence.
+ *
+ * Ranks are computed over ALL channels of that Type, not just the visible ones,
+ * so a channel's number does not change as filters are applied.
+ */
+export function buildRanking(
+  channels: Channel[],
+  payload: RankingPayload | null
+): Map<string, RankedEntry> {
+  const result = new Map<string, RankedEntry>()
+  if (!payload) return result
+
+  const scoreByHandle = new Map<string, ChannelScore>()
+  for (const s of payload.channels) scoreByHandle.set(normaliseHandle(s.handle), s)
+
+  const pools: Record<FormatClass, { channel: Channel; entry: Omit<RankedEntry, "rank" | "poolSize"> }[]> = {
+    LONG_FORM: [],
+    SHORTS: [],
+  }
+
+  for (const channel of channels) {
+    const score = scoreByHandle.get(normaliseHandle(channel.handle))
+    if (!score) continue
+    const pool = poolOf(channel.type)
+    const cohort = pool === "SHORTS" ? score.asShorts : score.asLongForm
+    pools[pool].push({ channel, entry: { score, pool, cohort } })
+  }
+
+  for (const pool of ["LONG_FORM", "SHORTS"] as FormatClass[]) {
+    const members = pools[pool]
+    members.sort(
+      (a, b) =>
+        b.entry.cohort.combinedScore - a.entry.cohort.combinedScore ||
+        a.channel.handle.localeCompare(b.channel.handle)
+    )
+    members.forEach((m, i) => {
+      result.set(m.channel.id, { ...m.entry, rank: i + 1, poolSize: members.length })
+    })
+  }
+
+  return result
 }

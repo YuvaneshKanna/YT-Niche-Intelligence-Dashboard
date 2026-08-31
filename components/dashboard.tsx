@@ -23,7 +23,7 @@ import {
   type ContentType,
 } from "@/lib/constants"
 import { useChannels } from "@/lib/useChannels"
-import { normaliseHandle, useRankings } from "@/lib/useRankings"
+import { buildRanking, useRankings } from "@/lib/useRankings"
 import { cn } from "@/lib/utils"
 
 /**
@@ -96,7 +96,7 @@ export function Dashboard() {
   // a trailing 90-day window, and must never block or break the audit list —
   // if it fails, every channel simply has no score and the list keeps its
   // original order.
-  const { byHandle: rankByHandle, payload: ranking, error: rankingError } = useRankings(90)
+  const { payload: ranking, error: rankingError } = useRankings(90)
 
   const [channelsState, setChannelsState2] = useState<Channel[]>([])
 
@@ -405,24 +405,53 @@ export function Dashboard() {
   }, [channelsState, searchQuery, showUnavailable, showHandleDiff, showNeedsAudit, dateFilter, customRange, filterValues, isEditMode])
 
   /**
+   * Placement per channel: which pool, and what number within it.
+   *
+   * Built from the FULL channel list, never the filtered one, so a channel's
+   * rank is a property of the channel and does not shift as filters change.
+   */
+  const rankingByChannelId = useMemo(
+    () => buildRanking(channelsState, ranking),
+    [channelsState, ranking],
+  )
+
+  /**
    * The sidebar order: best combined score first.
+   *
+   * Sorting on the score rather than the rank matters when the list mixes
+   * pools, because long-form #1 and Shorts #1 both exist and neither should
+   * automatically precede the other. Because each pool's ranks are assigned in
+   * this same score order, filtering the list to one Type still yields a
+   * contiguous 1, 2, 3.
    *
    * Channels with no ranking sink to the bottom rather than sorting as zero —
    * "not tracked in Neon" is not the same claim as "scored badly", and the
-   * sheet holds more channels than Stage 2 tracks. Ties and unscored channels
-   * fall back to the original sheet order so the list never reshuffles at random.
+   * sheet holds more channels than Stage 2 tracks. Unscored channels keep their
+   * original sheet order so the list never reshuffles at random.
    */
   const rankedChannels = useMemo(() => {
     const indexOf = new Map(filteredChannels.map((c, i) => [c.id, i]))
     return [...filteredChannels].sort((a, b) => {
-      const sa = rankByHandle.get(normaliseHandle(a.handle))
-      const sb = rankByHandle.get(normaliseHandle(b.handle))
-      if (sa && sb) return sa.rank - sb.rank
-      if (sa) return -1
-      if (sb) return 1
+      const ea = rankingByChannelId.get(a.id)
+      const eb = rankingByChannelId.get(b.id)
+      if (ea && eb) {
+        // Same pool: order by the assigned rank directly. Sorting by score
+        // again would be one comparator too many — scores tie, and a display
+        // sort that breaks a tie differently from the rank assignment puts a
+        // visible swap in the filtered sequence (…6, 8, 7…).
+        if (ea.pool === eb.pool) return ea.rank - eb.rank
+        // Different pools: scores are comparable (both are percentiles), and
+        // the handle tiebreak matches buildRanking's so the two never disagree.
+        return (
+          eb.cohort.combinedScore - ea.cohort.combinedScore ||
+          a.handle.localeCompare(b.handle)
+        )
+      }
+      if (ea) return -1
+      if (eb) return 1
       return (indexOf.get(a.id) ?? 0) - (indexOf.get(b.id) ?? 0)
     })
-  }, [filteredChannels, rankByHandle])
+  }, [filteredChannels, rankingByChannelId])
 
   const needsAuditCount = useMemo(
     () => channelsState.filter(needsAudit).length,
@@ -742,8 +771,10 @@ export function Dashboard() {
             ) : ranking ? (
               <span
                 title={
-                  `Sorted by combined score: 75% Channel Score (percentile within the ` +
-                  `channel's own format cohort) + 25% Niche Score. ` +
+                  `Sorted by combined score: 75% Channel Score + 25% Niche Score, both ` +
+                  `percentiles within the channel's own pool. Long-form and Shorts are ` +
+                  `ranked as two separate pools — each has its own #1, and the pool comes ` +
+                  `from the Type column so filtering by Type gives a contiguous 1, 2, 3. ` +
                   `Window requested ${ranking.requestedDays}d, actually covered ${ranking.coverageDays}d` +
                   (ranking.coverageStart ? ` (${ranking.coverageStart} to ${ranking.coverageEnd})` : "") +
                   `. Channels with no Neon metrics sort last.` +
@@ -754,7 +785,7 @@ export function Dashboard() {
                 {ranking.coverageDays < ranking.requestedDays &&
                   ` of ${ranking.requestedDays}d requested`}
                 {" · "}
-                {ranking.channels.length} scored
+                {rankingByChannelId.size} scored
               </span>
             ) : (
               <span>Loading ranking…</span>
@@ -771,7 +802,7 @@ export function Dashboard() {
                 channel={channel}
                 isActive={channel.id === selectedChannelId}
                 needsAudit={needsAudit(channel)}
-                score={rankByHandle.get(normaliseHandle(channel.handle))}
+                entry={rankingByChannelId.get(channel.id)}
                 onClick={() => handleSelectChannel(channel.id)}
                 onDeleteClick={() => setChannelPendingDelete(channel)}
               />

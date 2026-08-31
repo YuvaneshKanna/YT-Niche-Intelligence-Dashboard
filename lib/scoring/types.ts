@@ -1,42 +1,48 @@
 // Types for the channel ranking that drives the Page 1 sidebar order.
 //
-// Two scores per channel, both 0-100:
-//   Channel Score — how this channel performs against its OWN format cohort.
-//   Niche Score   — how this channel's niche performs against other niches.
-// Combined = COMBINED_WEIGHTS.channel * channel + COMBINED_WEIGHTS.niche * niche.
+// There are exactly TWO pools: long-form and Shorts. A channel is ranked only
+// against others of its own kind, never across the two. There is deliberately
+// no third "publishes both" pool — a channel that posts both still competes in
+// one list, the one its Type field says it belongs to.
 //
 // Everything is percentile-based rather than absolute, because Shorts and
 // long-form are not comparable on raw numbers: the median Shorts video in this
 // roster has ~139K views against ~22K for the median long-form video, a 6.4x
-// structural gap that says nothing about channel quality. Scoring each channel
-// against its own cohort and reporting the percentile puts all three classes
-// back on one comparable 0-100 scale, so a single sorted list is still valid.
+// structural gap that says nothing about channel quality.
+//
+// ── Why the server scores every channel BOTH ways ──────────────────────────
+//
+// The pool a channel belongs to is decided by the `type` column of the Manual
+// Sheet — the human's own call, and the same field the sidebar's Type filter
+// reads. The ranking API has no access to that column: it reads Neon, which
+// carries no `type`.
+//
+// Rather than guess the pool from measured video counts and risk disagreeing
+// with the sheet, the server scores every channel against BOTH cohorts and
+// returns both results. The client then picks the one matching that channel's
+// sheet Type and ranks within it. Because ranking and filtering then read the
+// exact same field, filtering the sidebar to one Type always yields a
+// contiguous 1, 2, 3 — which guessing from measured counts could not promise.
 
-/** Which cohort a channel is scored against. */
-export type FormatClass = "LONG_FORM" | "SHORTS" | "BOTH"
+/** The two pools. */
+export type FormatClass = "LONG_FORM" | "SHORTS"
 
 /**
- * How a channel was placed into its format class.
+ * The measured long-form/Shorts mix of a channel's tracked uploads.
  *
- * Classification uses the share of the channel's videos that are long-form,
- * NOT the share of views. View share is structurally biased between the two
- * formats (see above) and the two disagree for 15 of 189 channels in this
- * roster — one channel is 9% long-form by video count but 89% by views.
- * Video count reflects what the channel actually publishes; view share only
- * reflects which format YouTube's surfaces happened to reward.
- *
- * View share is still used, but only inside a BOTH channel, to weight its two
- * cohort scores against each other. That is a within-channel comparison, where
- * the cross-format bias cancels out.
+ * Reported for transparency — it is what the hover card shows, and it is how
+ * the two scoring cohorts are built — but it does NOT decide which pool a
+ * channel is ranked in. The sheet's Type field decides that.
  */
 export interface FormatSplit {
-  formatClass: FormatClass
   longFormVideos: number
   shortsVideos: number
-  /** Long-form share of tracked videos, 0-1. Drives the classification. */
+  /** Long-form share of tracked videos, 0-1. */
   videoShare: number | null
-  /** Long-form share of tracked views, 0-1. Reported for transparency; only used to blend BOTH. */
+  /** Long-form share of tracked views, 0-1. Structurally biased between formats; shown, not used. */
   viewShare: number | null
+  /** Which cohort the measurements put this channel in, for the "measured vs labelled" hint. */
+  measuredClass: FormatClass
 }
 
 /** Raw per-channel measurements the scorer consumes. All nullable — data is incomplete by design. */
@@ -78,7 +84,7 @@ export interface ChannelMetricInput {
 export interface ScoreComponent {
   key: string
   label: string
-  /** 0-100 percentile within the channel's cohort. Null when the input was missing. */
+  /** 0-100 percentile within the cohort. Null when the input was missing. */
   score: number | null
   weight: number
   /** Human-readable raw value behind the percentile. */
@@ -88,29 +94,30 @@ export interface ScoreComponent {
 
 export type ConfidenceLevel = "high" | "medium" | "low"
 
+/** One channel's result against ONE cohort. Every channel gets one of these per pool. */
+export interface CohortScore {
+  formatClass: FormatClass
+  /** 0-100 percentile within this cohort, after the confidence damp. */
+  channelScore: number
+  /** Before damping — explains why a thin channel sits near 50. */
+  channelScoreRaw: number
+  components: ScoreComponent[]
+  /** This channel's niche, scored within this same cohort. */
+  nicheScore: number | null
+  /** COMBINED_WEIGHTS applied. What the pool sorts on. */
+  combinedScore: number
+}
+
 export interface ChannelScore {
   channelId: string
   handle: string
   niche: string
 
   formatSplit: FormatSplit
-  /** 0-100, percentile within cohort, after the confidence damp. */
-  channelScore: number
-  /** Before damping — useful for explaining why a thin channel scores near 50. */
-  channelScoreRaw: number
-  components: ScoreComponent[]
-
-  nicheScore: number | null
-  /** COMBINED_WEIGHTS applied. This is what the list sorts on. */
-  combinedScore: number
-  /**
-   * 1-based position **within this channel's own format cohort**, not across
-   * the whole roster. Long-form and Shorts each have their own #1; filtering
-   * the sidebar to one format therefore yields a contiguous 1, 2, 3 sequence.
-   */
-  rank: number
-  /** How many channels are in this channel's cohort — the "of N" for the rank. */
-  cohortSize: number
+  /** Result if this channel is ranked as long-form. */
+  asLongForm: CohortScore
+  /** Result if this channel is ranked as Shorts. */
+  asShorts: CohortScore
 
   confidence: ConfidenceLevel
   confidenceReason: string
@@ -126,13 +133,13 @@ export interface NicheScore {
   /**
    * Which cohort this niche score was computed within.
    *
-   * Niche scores are per-format for the same reason channel scores are: 9 of
-   * the 23 niches contain both long-form and Shorts channels, and some are
-   * lopsided — Sports is 25 Shorts to 3 long-form. A single blended Sports
-   * score would be set almost entirely by Shorts velocity and then handed to
-   * the three long-form Sports channels as if it described their market.
+   * Niche scores are per-pool for the same reason channel scores are: 9 of the
+   * 23 niches contain both kinds of channel, and several are lopsided — Sports
+   * is 25 Shorts to 3 long-form. A single blended Sports score would be set
+   * almost entirely by Shorts velocity and then handed to the long-form Sports
+   * channels as if it described their market.
    */
-  formatClass: Exclude<FormatClass, "BOTH">
+  formatClass: FormatClass
   channelCount: number
   score: number
   components: ScoreComponent[]
@@ -156,18 +163,19 @@ export interface RankingPayload {
  * Channel vs Niche weighting for the sort key.
  *
  * The niche weight is deliberately the minority share. A Niche Score is
- * identical for every channel in that niche, so it cannot separate channels
- * within a niche — it can only move whole niches as blocks. Push it much above
- * 0.25 and the sidebar stops being a channel ranking and becomes a niche
- * ranking with channels nested inside it.
+ * identical for every channel in that niche and pool, so it cannot separate
+ * channels within a niche — it can only move whole niches as blocks. Push it
+ * much above 0.25 and the sidebar stops being a channel ranking and becomes a
+ * niche ranking with channels nested inside it.
  */
 export const COMBINED_WEIGHTS = { channel: 0.75, niche: 0.25 } as const
 
 /**
- * Long-form video-share thresholds for the format class. Inside the band the
- * channel genuinely publishes both and is scored as BOTH.
+ * Long-form share of tracked videos above which a channel's MEASUREMENTS are
+ * counted into the long-form cohort. This shapes the two percentile
+ * distributions only — it never decides which pool a channel is ranked in.
  */
-export const FORMAT_BANDS = { longFormMin: 0.65, shortsMax: 0.35 } as const
+export const MEASURED_LONG_FORM_MIN_SHARE = 0.5
 
 /** Below this many lifetime videos a channel's score is shrunk toward neutral. */
 export const MIN_VIDEOS_FOR_FULL_CONFIDENCE = 10
