@@ -1,18 +1,81 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { ArrowDown, ArrowUp, ExternalLink, LayoutGrid, Table2 } from "lucide-react"
+import { useMemo, useState, type ReactNode } from "react"
+import {
+  ArrowDown,
+  ArrowUp,
+  ExternalLink,
+  LayoutGrid,
+  ShieldCheck,
+  Sparkles,
+  Table2,
+} from "lucide-react"
 import type { VideoRollup, VideoType } from "@/lib/metrics/types"
 import { SERIES } from "./views-trend"
 
-type SortKey = "viewsPerDay" | "views" | "outlierScore" | "dominancePct" | "engagementRatePct"
+type SortKey =
+  | "channelAgeDays"
+  | "viewsPerDay"
+  | "views"
+  | "outlierScore"
+  | "dominancePct"
+  | "engagementRatePct"
 
+// Key order drives column order — the tbody cells below follow it.
 const SORT_LABELS: Record<SortKey, string> = {
+  channelAgeDays: "Ch. age",
   viewsPerDay: "Views / day",
   views: "Total views",
   outlierScore: "Outlier score",
   dominancePct: "Dominance",
   engagementRatePct: "Engagement",
+}
+
+const AGE_CAVEAT =
+  "Days since the channel's oldest upload we track — a lower bound on real " +
+  "channel age, not its creation date. Stage 2 fetches only a slice of each " +
+  "channel's uploads, so an established channel can look young here."
+
+const SORT_HINTS: Partial<Record<SortKey, string>> = {
+  channelAgeDays: AGE_CAVEAT,
+}
+
+/** Channel-age ceiling for the "young breakout" filter, in days. */
+const YOUNG_MAX_AGE_DAYS = 90
+
+/** Views/day percentile a video must clear to count as a breakout. */
+const BREAKOUT_VPD_PERCENTILE = 0.75
+
+/**
+ * Interim authenticity proxy until the Chunk 3 rubric lands: production styles
+ * that are AI-generated or a stock recompile rather than an original edit.
+ * Compared lowercased against `VideoRollup.producedBy`.
+ *
+ * A blank `producedBy` is unaudited, so it is hidden too — the toggle means
+ * "known-human production", not "not known to be AI".
+ */
+const NON_AUTHENTIC_PRODUCED_BY = new Set([
+  "ai tools",
+  "ai image",
+  "stickman/ai",
+  "ai+b-roll+editor",
+  "stock slideshow",
+])
+
+const isAuthentic = (producedBy: string): boolean => {
+  const key = producedBy.trim().toLowerCase()
+  return key !== "" && !NON_AUTHENTIC_PRODUCED_BY.has(key)
+}
+
+/**
+ * Nearest-rank percentile of a numeric list. Null for an empty list, so the
+ * breakout filter degrades to "no rows qualify" rather than to "all rows do".
+ */
+function percentile(values: number[], p: number): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))
+  return sorted[idx]
 }
 
 const REASON_STYLE: Record<string, string> = {
@@ -30,6 +93,40 @@ const fmt = (n: number): string => {
   return String(Math.round(n))
 }
 
+/** A compact on/off filter chip with the count it would leave behind. */
+function FilterChip({
+  icon,
+  label,
+  count,
+  active,
+  onClick,
+  title,
+}: {
+  icon: ReactNode
+  label: string
+  count: number
+  active: boolean
+  onClick: () => void
+  title: string
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      title={title}
+      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] transition-colors ${
+        active
+          ? "border-primary bg-primary/15 text-foreground"
+          : "border-border text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {icon}
+      {label}
+      <span className="tabular-nums opacity-70">{count}</span>
+    </button>
+  )
+}
+
 interface OutlierTableProps {
   videos: VideoRollup[]
   videoType: VideoType
@@ -43,15 +140,50 @@ export function OutlierTable({ videos, videoType }: OutlierTableProps) {
   const [view, setView] = useState<"cards" | "table">("table")
   const [sortKey, setSortKey] = useState<SortKey>("viewsPerDay")
   const [desc, setDesc] = useState(true)
+  const [youngOnly, setYoungOnly] = useState(false)
+  const [authenticOnly, setAuthenticOnly] = useState(false)
 
-  const rows = useMemo(() => {
-    const filtered = videos.filter((v) => v.videoType === videoType)
-    return [...filtered].sort((a, b) => {
-      const av = (a[sortKey] ?? 0) as number
-      const bv = (b[sortKey] ?? 0) as number
+  const { rows, baseCount, youngCount, authenticCount, vpdThreshold } = useMemo(() => {
+    const forFormat = videos.filter((v) => v.videoType === videoType)
+
+    // The breakout bar is relative to what is actually on screen — the top
+    // quartile of views/day for THIS format and range — so it retunes itself
+    // as the roster and window change instead of drifting out of date.
+    const threshold = percentile(
+      forFormat.map((v) => v.viewsPerDay).filter((n): n is number => n !== null),
+      BREAKOUT_VPD_PERCENTILE
+    )
+
+    const isYoungBreakout = (v: VideoRollup): boolean =>
+      v.channelAgeDays !== null &&
+      v.channelAgeDays <= YOUNG_MAX_AGE_DAYS &&
+      threshold !== null &&
+      v.viewsPerDay !== null &&
+      v.viewsPerDay >= threshold
+
+    let filtered = forFormat
+    if (youngOnly) filtered = filtered.filter(isYoungBreakout)
+    if (authenticOnly) filtered = filtered.filter((v) => isAuthentic(v.producedBy))
+
+    const sorted = [...filtered].sort((a, b) => {
+      const av = a[sortKey]
+      const bv = b[sortKey]
+      // Unknowns sink to the bottom whichever way the column is sorted — a
+      // missing channel age must not read as "brand new".
+      if (av === null && bv === null) return 0
+      if (av === null) return 1
+      if (bv === null) return -1
       return desc ? bv - av : av - bv
     })
-  }, [videos, videoType, sortKey, desc])
+
+    return {
+      rows: sorted,
+      baseCount: forFormat.length,
+      youngCount: forFormat.filter(isYoungBreakout).length,
+      authenticCount: forFormat.filter((v) => isAuthentic(v.producedBy)).length,
+      vpdThreshold: threshold,
+    }
+  }, [videos, videoType, sortKey, desc, youngOnly, authenticOnly])
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) setDesc((d) => !d)
@@ -61,7 +193,7 @@ export function OutlierTable({ videos, videoType }: OutlierTableProps) {
     }
   }
 
-  if (rows.length === 0) {
+  if (baseCount === 0) {
     return (
       <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border">
         <p className="text-sm text-muted-foreground">
@@ -82,7 +214,38 @@ export function OutlierTable({ videos, videoType }: OutlierTableProps) {
           <h3 className="text-sm font-semibold text-foreground">
             {SERIES[videoType].label} outliers
           </h3>
-          <span className="text-xs text-muted-foreground">({rows.length})</span>
+          <span className="text-xs text-muted-foreground">
+            ({rows.length}
+            {rows.length === baseCount ? "" : ` of ${baseCount}`})
+          </span>
+
+          <div className="ml-1 flex items-center gap-1">
+            <FilterChip
+              icon={<Sparkles className="h-3 w-3" />}
+              label="Young breakout"
+              count={youngCount}
+              active={youngOnly}
+              onClick={() => setYoungOnly((v) => !v)}
+              title={
+                `Channels whose oldest tracked upload is ${YOUNG_MAX_AGE_DAYS} days old or less, ` +
+                "with views/day in the top quartile of this list" +
+                (vpdThreshold === null ? "" : ` (at least ${fmt(vpdThreshold)}/day)`) +
+                `. ${AGE_CAVEAT}`
+              }
+            />
+            <FilterChip
+              icon={<ShieldCheck className="h-3 w-3" />}
+              label="Authentic only"
+              count={authenticCount}
+              active={authenticOnly}
+              onClick={() => setAuthenticOnly((v) => !v)}
+              title={
+                "Keeps channels whose Produced By is a human production style. Hides " +
+                "AI-generated and stock-slideshow channels, and unaudited ones with no " +
+                "Produced By set. Interim proxy until the authenticity rubric lands."
+              }
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
@@ -113,9 +276,18 @@ export function OutlierTable({ videos, videoType }: OutlierTableProps) {
         </div>
       </div>
 
-      {view === "table" ? (
+      {rows.length === 0 ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            None of the {baseCount} videos match the active filters. Turn off{" "}
+            {youngOnly ? "“Young breakout”" : ""}
+            {youngOnly && authenticOnly ? " or " : ""}
+            {authenticOnly ? "“Authentic only”" : ""} to see them all.
+          </p>
+        </div>
+      ) : view === "table" ? (
         <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full min-w-[54rem] text-left">
+          <table className="w-full min-w-[60rem] text-left">
             <thead className="sticky top-0 z-10 bg-card">
               <tr className="border-b border-border text-[10px] uppercase tracking-widest text-muted-foreground">
                 <th className="px-4 py-2 font-medium">Video</th>
@@ -125,6 +297,7 @@ export function OutlierTable({ videos, videoType }: OutlierTableProps) {
                   <th key={key} className="px-3 py-2 text-right font-medium">
                     <button
                       onClick={() => toggleSort(key)}
+                      title={SORT_HINTS[key]}
                       className="inline-flex items-center gap-1 hover:text-foreground"
                     >
                       {SORT_LABELS[key]}
@@ -163,6 +336,23 @@ export function OutlierTable({ videos, videoType }: OutlierTableProps) {
                     >
                       {v.outlierReason || "—"}
                     </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-xs tabular-nums text-foreground">
+                    {v.channelAgeDays === null ? (
+                      <span
+                        className="text-muted-foreground"
+                        title="No tracked uploads for this channel"
+                      >
+                        —
+                      </span>
+                    ) : (
+                      <span
+                        title={`Oldest tracked upload ${v.channelFirstVideoAt}. ${AGE_CAVEAT}`}
+                        className={v.channelAgeDays <= YOUNG_MAX_AGE_DAYS ? "text-amber-300" : ""}
+                      >
+                        {v.channelAgeDays}d
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-right text-xs tabular-nums text-foreground">
                     {v.viewsPerDay === null ? (
@@ -230,6 +420,19 @@ export function OutlierTable({ videos, videoType }: OutlierTableProps) {
                 <span className="tabular-nums">{v.dominancePct.toFixed(1)}% share</span>
                 <span>·</span>
                 <span className="tabular-nums">{v.outlierScore.toFixed(1)}</span>
+                {v.channelAgeDays !== null && (
+                  <>
+                    <span>·</span>
+                    <span
+                      title={AGE_CAVEAT}
+                      className={`tabular-nums ${
+                        v.channelAgeDays <= YOUNG_MAX_AGE_DAYS ? "text-amber-300" : ""
+                      }`}
+                    >
+                      {v.channelAgeDays}d ch.
+                    </span>
+                  </>
+                )}
               </div>
             </a>
           ))}

@@ -786,6 +786,11 @@ function StatusStrip({
   )
 }
 
+const GROUP_AGE_CAVEAT =
+  "Median days since each channel's oldest tracked upload — a lower bound on " +
+  "real channel age, not the creation date. Stage 2 fetches only a slice of " +
+  "each channel's uploads, so an established channel can look young here."
+
 function GroupCard({
   group,
   active,
@@ -838,6 +843,11 @@ function GroupCard({
           />
           {fmt(group.byFormat.SHORTS.viewsPerDay)}/d
         </span>
+        {group.medianChannelAgeDays !== null && (
+          <span className="tabular-nums" title={GROUP_AGE_CAVEAT}>
+            {group.medianChannelAgeDays}d median age
+          </span>
+        )}
       </div>
     </button>
   )

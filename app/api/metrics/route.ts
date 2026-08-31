@@ -9,6 +9,7 @@ import {
 } from "@/lib/metrics/sheets"
 import {
   diagnose as diagnoseNeon,
+  readChannelFirstVideoDates,
   readChannelSnapshots as readChannelNeon,
   readVideoSnapshots as readVideoNeon,
 } from "@/lib/metrics/neon"
@@ -124,15 +125,22 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const [channelSnapshots, videoSnapshots] = await Promise.all([
+    // The channel-age proxy is a Neon-only read: it looks at the whole
+    // `videos` table, outside the snapshot window, and the Sheets path has no
+    // equivalent. On Sheets it stays undefined and every age field is null.
+    const [channelSnapshots, videoSnapshots, firstVideoByChannelId] = await Promise.all([
       readChannelSnapshots(since),
       readVideoSnapshots(since),
+      SOURCE === "neon"
+        ? readChannelFirstVideoDates()
+        : Promise.resolve(undefined as Map<string, string> | undefined),
     ])
 
     const result = aggregate({
       channelSnapshots,
       videoSnapshots,
       requestedDays: days,
+      firstVideoByChannelId,
     })
 
     // An empty result is the hardest failure to diagnose from the UI. When

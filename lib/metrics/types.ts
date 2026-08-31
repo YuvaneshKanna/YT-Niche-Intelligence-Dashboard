@@ -121,6 +121,18 @@ export interface ChannelRollup {
   format: string
   producedBy: string
   country: string
+  /**
+   * Oldest tracked upload date (YYYY-MM-DD), or null when unknown.
+   *
+   * A LOWER BOUND on channel age, not the channel's creation date — Stage 2
+   * fetches only a slice of each channel's uploads, so a long-running channel
+   * with a high cadence can show a first-upload date only weeks old. See
+   * `readChannelFirstVideoDates` in lib/metrics/neon.ts. Always null on the
+   * Sheets path, which has no equivalent source.
+   */
+  firstVideoAt: string | null
+  /** Days since `firstVideoAt`. Null when `firstVideoAt` is null. */
+  channelAgeDays: number | null
   subscribers: number
   /** Subscribers gained across the window. */
   subscriberDelta: number
@@ -139,6 +151,12 @@ export interface VideoRollup {
   videoUrl: string
   title: string
   handle: string
+  /** Production style of the publishing channel — the interim authenticity proxy. */
+  producedBy: string
+  /** Publishing channel's oldest tracked upload date. Lower bound; see `ChannelRollup.firstVideoAt`. */
+  channelFirstVideoAt: string | null
+  /** Days since `channelFirstVideoAt`. Null when unknown. */
+  channelAgeDays: number | null
   thumbnailUrl: string
   videoType: VideoType
   publishedAt: string
@@ -187,6 +205,12 @@ export interface CompositeScore {
 export interface NicheGroupSummary {
   nicheGroup: string
   channelCount: number
+  /**
+   * Median `channelAgeDays` across the group's channels, ignoring unknowns.
+   * Null when no channel in the group has a known age. Same lower-bound
+   * caveat as `ChannelRollup.firstVideoAt`.
+   */
+  medianChannelAgeDays: number | null
   /** Dominant niche label across the group's channels, for scoring lookup. */
   primaryNiche: string
   totalViewsDelta: number

@@ -172,6 +172,44 @@ export async function readVideoSnapshots(sinceDate: string): Promise<VideoSnapsh
   })
 }
 
+/**
+ * Oldest upload date on record for every channel, keyed by `channel_id`.
+ *
+ * This is the Chunk 2 **channel-age proxy**: `MIN(videos.published_at)`, not
+ * the channel's creation date, which Neon does not store yet. Two things make
+ * it a lower bound on real age rather than a measurement of it:
+ *
+ *  - Stage 2 fetches a slice of each channel's uploads, not the full back
+ *    catalogue (median ~31 videos per channel), so a channel running for years
+ *    at a high cadence can report a first upload only weeks old.
+ *  - Channels with no rows in `videos` are simply absent from the map.
+ *
+ * The UI must label it as "oldest tracked upload", never as channel age.
+ * Chunk 3 replaces it with the real created date from the channel scrape.
+ *
+ * Unwindowed on purpose — the whole point is to look further back than the
+ * requested snapshot range. One grouped scan of `videos` (~6k rows), run once
+ * per cache miss alongside the two snapshot reads.
+ */
+export async function readChannelFirstVideoDates(): Promise<Map<string, string>> {
+  const rows = (await sql()`
+    SELECT
+      channel_id                AS channel_id,
+      MIN(published_at)::text   AS first_video_at
+    FROM videos
+    WHERE published_at IS NOT NULL
+    GROUP BY channel_id
+  `) as Record<string, unknown>[]
+
+  const byChannelId = new Map<string, string>()
+  for (const r of rows) {
+    const channelId = str(r.channel_id)
+    const firstVideoAt = str(r.first_video_at)
+    if (channelId && firstVideoAt) byChannelId.set(channelId, firstVideoAt)
+  }
+  return byChannelId
+}
+
 /** What the Neon tables actually hold, for diagnosing an empty result. */
 export interface NeonDiagnostics {
   table: string
