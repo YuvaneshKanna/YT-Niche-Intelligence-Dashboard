@@ -6,7 +6,22 @@ import { NextRequest } from "next/server"
 // Deliberately returns booleans only — never the secrets themselves.
 
 export async function GET(_request: NextRequest) {
-  const oauthTokenSet = Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN)
+  const rawToken = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? ""
+  const oauthTokenSet = Boolean(rawToken)
+
+  // A stored token that Anthropic rejects gives no clue whether the paste was
+  // corrupted or the token itself is dead — Vercel marks it sensitive, so the
+  // value cannot be read back. Report its shape instead: never the value, and
+  // nothing an attacker could reconstruct it from. Remove once chat works.
+  const tokenShape = oauthTokenSet
+    ? {
+        length: rawToken.length,
+        wellFormedPrefix: rawToken.startsWith("sk-ant-oat01-"),
+        hasQuotes: /["']/.test(rawToken),
+        hasWhitespace: /\s/.test(rawToken),
+      }
+    : null
+
   const sandboxUrl = process.env.SANDBOX_CHAT_URL || ""
   const sandboxSecret = Boolean(process.env.SANDBOX_SHARED_SECRET)
 
@@ -27,6 +42,7 @@ export async function GET(_request: NextRequest) {
 
   return Response.json({
     oauthTokenSet,
+    tokenShape,
     // Which backend a subscription-mode message will actually take.
     subscriptionBackend: oauthTokenSet
       ? "in-function"
