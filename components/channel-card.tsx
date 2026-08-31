@@ -6,15 +6,31 @@ import { MoreVertical, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import type { Channel } from "@/lib/constants"
+import { ScoreHoverCard } from "@/components/score-hover-card"
+import type { RankedEntry } from "@/lib/useRankings"
+
+/** Pool tag shown beside the rank. Two pools only — never a combined bucket. */
+const POOL_TAG = { LONG_FORM: "LF", SHORTS: "SH" } as const
+const POOL_NAME = { LONG_FORM: "long-form", SHORTS: "Shorts" } as const
+
+/** Score band colour for the inline bar. Always paired with the number beside it. */
+function scoreTone(score: number): string {
+  if (score >= 70) return "bg-emerald-400"
+  if (score >= 40) return "bg-sky-400"
+  return "bg-slate-500"
+}
 
 interface ChannelCardProps {
   channel: Channel
   isActive: boolean
+  needsAudit?: boolean
+  /** Placement for this channel. Absent when the channel is not tracked in Neon. */
+  entry?: RankedEntry
   onClick: () => void
   onDeleteClick: () => void
 }
 
-export function ChannelCard({ channel, isActive, onClick, onDeleteClick }: ChannelCardProps) {
+export function ChannelCard({ channel, isActive, needsAudit, entry, onClick, onDeleteClick }: ChannelCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -68,9 +84,35 @@ export function ChannelCard({ channel, isActive, onClick, onDeleteClick }: Chann
         )}
       </div>
 
-      {/* Row 1: Channel name */}
-      <p className="font-semibold text-sidebar-foreground truncate text-sm pr-6">
-        {channel.handle}
+      {/* Row 1: rank · channel name · combined score.
+          Amber dot = missing classification, needs audit. */}
+      <p className="font-semibold text-sidebar-foreground truncate text-sm pr-6 flex items-center gap-1.5">
+        {entry && (
+          <ScoreHoverCard
+            entry={entry}
+            ariaLabel={`Ranked ${entry.rank} of ${entry.poolSize} among ${POOL_NAME[entry.pool]} channels. Show score breakdown.`}
+            className="flex-shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground hover:text-foreground"
+          >
+            #{entry.rank}
+            <span className="ml-0.5 text-[9px] uppercase opacity-70">{POOL_TAG[entry.pool]}</span>
+          </ScoreHoverCard>
+        )}
+        {needsAudit && (
+          <span
+            className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"
+            title="Needs audit — missing niche, category or produced-by"
+          />
+        )}
+        <span className="truncate">{channel.handle}</span>
+        {entry && (
+          <ScoreHoverCard
+            entry={entry}
+            ariaLabel={`Combined score ${entry.cohort.combinedScore} of 100. Show score breakdown.`}
+            className="ml-auto flex-shrink-0 text-xs font-semibold tabular-nums text-foreground hover:text-primary"
+          >
+            {entry.cohort.combinedScore}
+          </ScoreHoverCard>
+        )}
       </p>
 
       {/* Row 2: @handle - removed as it's the same as above, showing name without @ instead */}
@@ -110,7 +152,35 @@ export function ChannelCard({ channel, isActive, onClick, onDeleteClick }: Chann
         </div>
       )}
 
-      {/* Row 5: Shared on date */}
+      {/* Row 5: combined-score bar + cohort tag. Hover for the full breakdown. */}
+      {entry && (
+        <ScoreHoverCard
+          entry={entry}
+          ariaLabel={`Combined score ${entry.cohort.combinedScore} of 100, ranked ${entry.rank} of ${entry.poolSize} among ${POOL_NAME[entry.pool]} channels. Show score breakdown.`}
+          className="mt-2 block w-full"
+        >
+          <span
+            role="meter"
+            aria-valuenow={entry.cohort.combinedScore}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            className="block h-1 w-full overflow-hidden rounded-full bg-white/10"
+          >
+            <span
+              className={cn(
+                "block h-full rounded-full transition-all duration-300",
+                scoreTone(entry.cohort.combinedScore),
+                // A low-confidence score is real but thinly evidenced — dim it
+                // rather than hide it, so the bar is never read as certain.
+                entry.score.confidence === "low" && "opacity-50"
+              )}
+              style={{ width: `${Math.max(2, entry.cohort.combinedScore)}%` }}
+            />
+          </span>
+        </ScoreHoverCard>
+      )}
+
+      {/* Row 6: Shared on date */}
       <p className="text-xs text-muted-foreground mt-1">
         Shared on {channel.sharedOn}
       </p>

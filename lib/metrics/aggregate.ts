@@ -280,6 +280,28 @@ function channelMeanViewsByFormat(videos: VideoSnapshot[]): Map<string, number> 
  * 10000 = a single channel owns the entire niche group.
  * Below ~1500 the niche is fragmented, which usually means it is enterable.
  */
+/**
+ * Whole days from a YYYY-MM-DD date up to `todayMs`, floored at zero.
+ * Null in, null out; an unparseable date also yields null rather than a
+ * nonsense age.
+ */
+function daysSince(date: string | null, todayMs: number): number | null {
+  if (!date) return null
+  const t = Date.parse(`${date}T00:00:00Z`)
+  if (!Number.isFinite(t)) return null
+  return Math.max(0, Math.floor((todayMs - t) / 86400000))
+}
+
+/** Median of a numeric list, rounded. Null for an empty list. */
+function median(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+    : sorted[mid]
+}
+
 export function computeHhi(shares: number[]): number {
   const total = shares.reduce((s, v) => s + v, 0)
   if (total <= 0) return 0
@@ -519,6 +541,12 @@ export interface AggregateInput {
   requestedDays: number
   /** Optional NexLev RPM per niche, keyed lowercase. */
   nexlevRpmByNiche?: Map<string, number>
+  /**
+   * Optional oldest-tracked-upload date per `channel_id`, from
+   * `readChannelFirstVideoDates`. Only the Neon path supplies it; the Sheets
+   * path leaves it undefined and every age field comes back null.
+   */
+  firstVideoByChannelId?: Map<string, string>
 }
 
 export interface AggregateResult {
@@ -532,8 +560,13 @@ export interface AggregateResult {
 }
 
 export function aggregate(input: AggregateInput): AggregateResult {
-  const { channelSnapshots, videoSnapshots, requestedDays, nexlevRpmByNiche } = input
+  const { channelSnapshots, videoSnapshots, requestedDays, nexlevRpmByNiche, firstVideoByChannelId } =
+    input
   const warnings: string[] = []
+
+  // One clock reading for the whole aggregation, so every age in the payload
+  // is measured from the same instant.
+  const nowMs = Date.now()
 
   const allDates = [
     ...new Set([
@@ -645,6 +678,8 @@ export function aggregate(input: AggregateInput): AggregateResult {
     for (const s of snaps) chanDatesMap.set(s.snapshotDate, new Set([handle]))
     const { byDate: chanTotalsByDate } = channelTotalDeltasByDate(snaps)
 
+    const firstVideoAt = firstVideoByChannelId?.get(last.channelId) ?? null
+
     channels.push({
       handle,
       channelId: last.channelId,
@@ -654,6 +689,8 @@ export function aggregate(input: AggregateInput): AggregateResult {
       format: last.format,
       producedBy: last.producedBy,
       country: last.country,
+      firstVideoAt,
+      channelAgeDays: daysSince(firstVideoAt, nowMs),
       subscribers: last.subscribers,
       subscriberDelta: subsDelta,
       totalViewsDelta: viewsDelta,
@@ -722,6 +759,11 @@ export function aggregate(input: AggregateInput): AggregateResult {
     groups.push({
       nicheGroup: name,
       channelCount: groupChannels.length,
+      medianChannelAgeDays: median(
+        groupChannels
+          .map((c) => c.channelAgeDays)
+          .filter((d): d is number => d !== null)
+      ),
       primaryNiche,
       totalViewsDelta,
       subscriberDelta: groupChannels.reduce((s, c) => s + c.subscriberDelta, 0),
@@ -789,11 +831,18 @@ export function aggregate(input: AggregateInput): AggregateResult {
     const groupKey = last.nicheGroup || UNGROUPED
     const groupTotal = groupGain.get(groupKey) ?? 0
 
+    // Age of the channel that published this video, so the outlier table can
+    // filter for young breakouts without a second lookup client-side.
+    const channelFirstVideoAt = firstVideoByChannelId?.get(last.channelId) ?? null
+
     videos.push({
       videoId,
       videoUrl: last.videoUrl,
       title: last.title,
       handle: last.handle,
+      producedBy: last.producedBy,
+      channelFirstVideoAt,
+      channelAgeDays: daysSince(channelFirstVideoAt, nowMs),
       thumbnailUrl: last.thumbnailUrl,
       videoType: last.videoType,
       publishedAt: last.publishedAt,

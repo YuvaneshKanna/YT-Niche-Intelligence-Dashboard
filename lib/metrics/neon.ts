@@ -172,6 +172,197 @@ export async function readVideoSnapshots(sinceDate: string): Promise<VideoSnapsh
   })
 }
 
+/**
+ * Oldest upload date on record for every channel, keyed by `channel_id`.
+ *
+ * This is the Chunk 2 **channel-age proxy**: `MIN(videos.published_at)`, not
+ * the channel's creation date, which Neon does not store yet. Two things make
+ * it a lower bound on real age rather than a measurement of it:
+ *
+ *  - Stage 2 fetches a slice of each channel's uploads, not the full back
+ *    catalogue (median ~31 videos per channel), so a channel running for years
+ *    at a high cadence can report a first upload only weeks old.
+ *  - Channels with no rows in `videos` are simply absent from the map.
+ *
+ * The UI must label it as "oldest tracked upload", never as channel age.
+ * Chunk 3 replaces it with the real created date from the channel scrape.
+ *
+ * Unwindowed on purpose — the whole point is to look further back than the
+ * requested snapshot range. One grouped scan of `videos` (~6k rows), run once
+ * per cache miss alongside the two snapshot reads.
+ */
+export async function readChannelFirstVideoDates(): Promise<Map<string, string>> {
+  const rows = (await sql()`
+    SELECT
+      channel_id                AS channel_id,
+      MIN(published_at)::text   AS first_video_at
+    FROM videos
+    WHERE published_at IS NOT NULL
+    GROUP BY channel_id
+  `) as Record<string, unknown>[]
+
+  const byChannelId = new Map<string, string>()
+  for (const r of rows) {
+    const channelId = str(r.channel_id)
+    const firstVideoAt = str(r.first_video_at)
+    if (channelId && firstVideoAt) byChannelId.set(channelId, firstVideoAt)
+  }
+  return byChannelId
+}
+
+/**
+ * One row of the per-channel measurements the ranking engine consumes.
+ * Mirrors `ChannelMetricInput` in lib/scoring/types.ts minus `createdAt`,
+ * which Neon does not hold and the YouTube reader supplies.
+ */
+export interface RankingRow {
+  channelId: string
+  handle: string
+  niche: string
+  category: string
+  nicheGroup: string
+  producedBy: string
+  coverageDays: number
+  viewsDelta: number
+  subscriberDelta: number
+  subscribersAtStart: number
+  subscribers: number
+  totalVideos: number
+  totalViews: number
+  longFormVideos: number
+  shortsVideos: number
+  longFormViews: number
+  shortsViews: number
+  trackedVideos: number
+  outlierVideos: number
+}
+
+/**
+ * Everything the ranking needs, over a trailing window, in one round trip.
+ *
+ * Deliberately anchored on `channel_snapshots` rather than the per-video
+ * `snapshots` table. Stage 2 maintenance deletes HISTORICAL video rows after
+ * 7 days, so beyond a week the video table retains only outliers and recent
+ * uploads — ranking on it would be a survivor-biased sample that flatters any
+ * channel that once had a hit. `channel_snapshots` is swept by nothing and is
+ * complete for every day it covers, which makes it the only honest basis for a
+ * window longer than 7 days.
+ *
+ * Video rows are still read, but only for what they can support: the
+ * long-form/Shorts split that decides a channel's format class, and the share
+ * of tracked videos flagged as outliers.
+ */
+export async function readRankingRows(sinceDate: string): Promise<RankingRow[]> {
+  const rows = (await sql()`
+    WITH cs_first AS (
+      SELECT DISTINCT ON (channel_id)
+        channel_id, subscribers, total_views
+      FROM channel_snapshots
+      WHERE snapshot_date >= ${sinceDate}
+      ORDER BY channel_id, snapshot_date ASC
+    ),
+    cs_last AS (
+      SELECT DISTINCT ON (channel_id)
+        channel_id, subscribers, total_views, total_videos
+      FROM channel_snapshots
+      WHERE snapshot_date >= ${sinceDate}
+      ORDER BY channel_id, snapshot_date DESC
+    ),
+    cov AS (
+      SELECT channel_id, count(DISTINCT snapshot_date)::int AS days
+      FROM channel_snapshots
+      WHERE snapshot_date >= ${sinceDate}
+      GROUP BY channel_id
+    ),
+    latest_video AS (
+      SELECT DISTINCT ON (video_id) video_id, views, outlier_reason
+      FROM snapshots
+      WHERE snapshot_date >= ${sinceDate}
+      ORDER BY video_id, snapshot_date DESC
+    ),
+    vf AS (
+      SELECT
+        v.channel_id,
+        count(*) FILTER (WHERE v.video_type = 'LONG_FORM')::int          AS lf_n,
+        count(*) FILTER (WHERE v.video_type = 'SHORTS')::int             AS sh_n,
+        COALESCE(sum(lv.views) FILTER (WHERE v.video_type = 'LONG_FORM'), 0)::float8 AS lf_views,
+        COALESCE(sum(lv.views) FILTER (WHERE v.video_type = 'SHORTS'), 0)::float8    AS sh_views,
+        count(lv.video_id)::int                                          AS tracked,
+        count(*) FILTER (
+          WHERE lv.outlier_reason IS NOT NULL
+            AND upper(TRIM(lv.outlier_reason)) NOT IN ('', 'NORMAL')
+        )::int                                                           AS outliers
+      FROM videos v
+      LEFT JOIN latest_video lv ON lv.video_id = v.video_id
+      GROUP BY v.channel_id
+    )
+    SELECT
+      c.channel_id                       AS channel_id,
+      c.handle                           AS handle,
+      COALESCE(c.niche, '')              AS niche,
+      COALESCE(c.category, '')           AS category,
+      COALESCE(c.niche_group, '')        AS niche_group,
+      COALESCE(c.produced_by, '')        AS produced_by,
+      COALESCE(cov.days, 0)              AS coverage_days,
+      GREATEST(COALESCE(cs_last.total_views, 0) - COALESCE(cs_first.total_views, 0), 0)::float8
+                                         AS views_delta,
+      (COALESCE(cs_last.subscribers, 0) - COALESCE(cs_first.subscribers, 0))
+                                         AS subscriber_delta,
+      COALESCE(cs_first.subscribers, 0)  AS subscribers_at_start,
+      COALESCE(cs_last.subscribers, 0)   AS subscribers,
+      COALESCE(cs_last.total_videos, 0)  AS total_videos,
+      COALESCE(cs_last.total_views, 0)::float8 AS total_views,
+      COALESCE(vf.lf_n, 0)               AS lf_n,
+      COALESCE(vf.sh_n, 0)               AS sh_n,
+      COALESCE(vf.lf_views, 0)::float8   AS lf_views,
+      COALESCE(vf.sh_views, 0)::float8   AS sh_views,
+      COALESCE(vf.tracked, 0)            AS tracked,
+      COALESCE(vf.outliers, 0)           AS outliers
+    FROM channels c
+    LEFT JOIN cs_first  ON cs_first.channel_id  = c.channel_id
+    LEFT JOIN cs_last   ON cs_last.channel_id   = c.channel_id
+    LEFT JOIN cov       ON cov.channel_id       = c.channel_id
+    LEFT JOIN vf        ON vf.channel_id        = c.channel_id
+  `) as Record<string, unknown>[]
+
+  return rows.map((r) => ({
+    channelId: str(r.channel_id),
+    handle: str(r.handle),
+    niche: str(r.niche),
+    category: str(r.category),
+    nicheGroup: str(r.niche_group),
+    producedBy: str(r.produced_by),
+    coverageDays: num(r.coverage_days),
+    viewsDelta: num(r.views_delta),
+    subscriberDelta: num(r.subscriber_delta),
+    subscribersAtStart: num(r.subscribers_at_start),
+    subscribers: num(r.subscribers),
+    totalVideos: num(r.total_videos),
+    totalViews: num(r.total_views),
+    longFormVideos: num(r.lf_n),
+    shortsVideos: num(r.sh_n),
+    longFormViews: num(r.lf_views),
+    shortsViews: num(r.sh_views),
+    trackedVideos: num(r.tracked),
+    outlierVideos: num(r.outliers),
+  }))
+}
+
+/** Oldest and newest snapshot day actually present in the window. */
+export async function readCoverage(
+  sinceDate: string
+): Promise<{ start: string | null; end: string | null; days: number }> {
+  const rows = (await sql()`
+    SELECT min(snapshot_date)::text AS start,
+           max(snapshot_date)::text AS "end",
+           count(DISTINCT snapshot_date)::int AS days
+    FROM channel_snapshots
+    WHERE snapshot_date >= ${sinceDate}
+  `) as Record<string, unknown>[]
+  const r = rows[0] ?? {}
+  return { start: str(r.start) || null, end: str(r.end) || null, days: num(r.days) }
+}
+
 /** What the Neon tables actually hold, for diagnosing an empty result. */
 export interface NeonDiagnostics {
   table: string

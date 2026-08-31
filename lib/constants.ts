@@ -20,6 +20,11 @@ export interface Channel {
   tracking: TrackingStatus
   sharedOn: string
   thumbnailUrl?: string
+  /** Who last confirmed this classification, from the Manual Sheet's M/N/O columns. */
+  auditedBy?: string
+  auditedAt?: string
+  /** Fingerprint of the fields at verification time — see lib/auditHash.ts. */
+  auditHash?: string
   isUnavailable?: boolean
   latestVideoId?: string
   hasHandleDiff?: boolean

@@ -12,17 +12,69 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
+import { VideoStrip, type VideoItem } from "@/components/video-strip"
+import { AuditPanel, type AuditValues, type AuditFieldKey } from "@/components/audit-panel"
+import { auditHash, isVerificationCurrent } from "@/lib/auditHash"
 import { SimilarChannelCard } from "@/components/similar-channel-card"
+import { useHorizontalWheel } from "@/lib/useHorizontalWheel"
 import { UserSelectModal } from "@/components/user-select-modal"
 import { SettingsModal } from "@/components/settings-modal"
 import { PageNav } from "@/components/page-nav"
 
 import {
   type Channel,
+  type ChannelType,
   type TrackingStatus,
   type ContentType,
 } from "@/lib/constants"
 import { useChannels } from "@/lib/useChannels"
+import { buildRanking, useRankings } from "@/lib/useRankings"
+import { cn } from "@/lib/utils"
+
+/**
+ * A channel needs audit until a human has confirmed its classification.
+ *
+ * Blank required fields still count — Niche, Category and Produced By are what
+ * the Niche Breakdown page aggregates by, and Niche Group is deliberately not
+ * among them, since a blank group on its own is fine.
+ *
+ * But emptiness alone was never the real signal: it cannot distinguish "the AI
+ * filled this in and a human checked it" from "the AI filled this in and nobody
+ * has looked", and the AI is not always right — which is the entire reason this
+ * page exists. So a channel is only clear once someone pressed Verify AND the
+ * fields still match what they verified. Edit any field afterwards and the
+ * recorded hash stops matching, so it returns to the queue by itself.
+ */
+function needsAudit(c: Channel): boolean {
+  if (!c.niche?.trim() || !c.category?.trim() || !c.producedBy?.trim()) return true
+  return !isVerificationCurrent(
+    {
+      contentType: c.contentType,
+      niche: c.niche,
+      category: c.category,
+      format: c.format,
+      producedBy: c.producedBy,
+      nicheGroup: c.nicheGroup,
+      tracking: c.tracking,
+    },
+    c.auditHash,
+    c.auditedAt,
+  )
+}
+
+const normHandleKey = (h: string) => (h || "").trim().toLowerCase().replace(/^@/, "")
+
+/** Resolve a `?channel=` param (handle, ytUrl or id) to a channel id. */
+function readChannelParam(channels: Channel[]): string | null {
+  if (typeof window === "undefined") return null
+  const raw = new URLSearchParams(window.location.search).get("channel")
+  if (!raw) return null
+  const target = normHandleKey(raw)
+  const match = channels.find(
+    (c) => normHandleKey(c.handle || "") === target || c.id === raw || c.ytUrl === raw,
+  )
+  return match?.id ?? null
+}
 
 
 
@@ -61,6 +113,12 @@ export function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedChannelId, setSelectedChannelId] = useState<string>("")
   const { channels: initialChannels, loading, setChannels: setChannelsState } = useChannels()
+  // Ranking is fetched independently of the sheet: it comes from Neon, covers
+  // a trailing 90-day window, and must never block or break the audit list —
+  // if it fails, every channel simply has no score and the list keeps its
+  // original order.
+  const { payload: ranking, error: rankingError } = useRankings(90)
+
   const [channelsState, setChannelsState2] = useState<Channel[]>([])
 
   const [masterRules, setMasterRules] = useState<{
@@ -118,13 +176,43 @@ export function Dashboard() {
   useEffect(() => {
     if (initialChannels.length > 0) {
       setChannelsState2(initialChannels)
-      if (!selectedChannelId) setSelectedChannelId(initialChannels[0].id)
+      if (!selectedChannelId) {
+        setSelectedChannelId(readChannelParam(initialChannels) ?? initialChannels[0].id)
+      }
     }
   }, [initialChannels])
+
+  // Keep the URL in sync with the selected channel (?channel=<handle>) so an
+  // audit view is refreshable and shareable, and so other pages can link
+  // straight to a channel. replaceState (not push) — a rapid audit shouldn't
+  // stack dozens of history entries.
+  useEffect(() => {
+    if (typeof window === "undefined" || !selectedChannelId) return
+    const ch = channelsState.find((c) => c.id === selectedChannelId)
+    if (!ch) return
+    const params = new URLSearchParams(window.location.search)
+    const handle = normHandleKey(ch.handle || "")
+    if (handle) params.set("channel", handle)
+    else params.delete("channel")
+    const qs = params.toString()
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname)
+  }, [selectedChannelId, channelsState])
+
+  // React to browser back/forward and externally-edited ?channel= params.
+  useEffect(() => {
+    const onPop = () => {
+      const id = readChannelParam(channelsState)
+      if (id) setSelectedChannelId(id)
+    }
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [channelsState])
+
   const [showSettings, setShowSettings] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [showUnavailable, setShowUnavailable] = useState(false)
   const [showHandleDiff, setShowHandleDiff] = useState(false)
+  const [showNeedsAudit, setShowNeedsAudit] = useState(false)
   const [channelIsUnavailable, setChannelIsUnavailable] = useState(false)
   const [channelHasHandleDiff, setChannelHasHandleDiff] = useState(false)
   const [channelPendingDelete, setChannelPendingDelete] = useState<Channel | null>(null)
@@ -145,7 +233,11 @@ export function Dashboard() {
   const [showMonthPicker, setShowMonthPicker] = useState<0 | 1 | null>(null)
   const dateDropdownRef = useRef<HTMLDivElement>(null)
   const settingsBarRef = useRef<HTMLDivElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // Which row the bottom slot shows. Persisted, because it tracks what the
+  // user is doing right now — auditing one channel, or hunting for new ones —
+  // and that does not change from channel to channel.
+  const [bottomRow, setBottomRow] = useState<"uploads" | "similar">("uploads")
+  const { ref: similarScrollRef } = useHorizontalWheel<HTMLDivElement>()
   const [openField, setOpenField] = useState<"niche" | "category" | "format" | "producedBy" | "nicheGroup" | "contentType" | "tracking" | null>(null)
   const [fieldSearch, setFieldSearch] = useState("")
 
@@ -166,10 +258,18 @@ export function Dashboard() {
   const [favouriteFilter, setFavouriteFilter] = useState<string>("All")
   const [favouriteData, setFavouriteData] = useState<{ ytUrl: string; addedBy: string; addedAt: string }[]>([])
   const [isFavouritesOpen, setIsFavouritesOpen] = useState(false)
-  const [hoveredSimilarId, setHoveredSimilarId] = useState<string | null>(null)
   const [videoPlaying, setVideoPlaying] = useState(false)
-  const [videoData, setVideoData] = useState<{ videoId: string; title: string; thumbnail: string; publishedAt?: string; views?: string; likes?: string; comments?: string } | null>(null)
+  // The channel's recent uploads, and which one the player is showing. One
+  // video cannot settle a classification — Produced_By especially — so the
+  // whole strip is kept and the auditor picks.
+  const [videos, setVideos] = useState<VideoItem[]>([])
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null)
   const [videoLoading, setVideoLoading] = useState(false)
+
+  const videoData = useMemo(
+    () => videos.find((v) => v.videoId === selectedVideoId) ?? videos[0] ?? null,
+    [videos, selectedVideoId],
+  )
 
   useEffect(() => {
     fetch('/api/favourites')
@@ -294,18 +394,6 @@ export function Dashboard() {
     return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  // Mouse wheel horizontal scroll for Similar Channels
-  useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      el.scrollLeft += e.deltaY * 2
-    }
-    el.addEventListener("wheel", handleWheel, { passive: false })
-    return () => el.removeEventListener("wheel", handleWheel)
-  }, [scrollContainerRef.current])
-
   const filteredChannels = useMemo(() => {
     return channelsState.filter((channel) => {
       // Toggle filters
@@ -315,16 +403,17 @@ export function Dashboard() {
         if (!unavailableMatch && !diffMatch) return false
       }
       if (!isInDateRange(channel.sharedOn, dateFilter, customRange)) return false
-      // Dropdown filters (AND logic — only applied in filter mode)
-      if (!isEditMode) {
-        if (filterValues.niche && channel?.niche !== filterValues.niche) return false
-        if (filterValues.category && channel?.category !== filterValues.category) return false
-        if (filterValues.format && channel?.format !== filterValues.format) return false
-        if (filterValues.producedBy && channel?.producedBy !== filterValues.producedBy) return false
-        if (filterValues.nicheGroup && channel?.nicheGroup !== filterValues.nicheGroup) return false
-        if (filterValues.contentType && channel?.type !== filterValues.contentType) return false
-        if (filterValues.tracking && channel?.tracking !== filterValues.tracking) return false
-      }
+      if (showNeedsAudit && !needsAudit(channel)) return false
+      // Dropdown filters (AND logic). The top bar only ever filters — editing
+      // moved to the audit panel, so there is no mode in which these mean
+      // something else.
+      if (filterValues.niche && channel?.niche !== filterValues.niche) return false
+      if (filterValues.category && channel?.category !== filterValues.category) return false
+      if (filterValues.format && channel?.format !== filterValues.format) return false
+      if (filterValues.producedBy && channel?.producedBy !== filterValues.producedBy) return false
+      if (filterValues.nicheGroup && channel?.nicheGroup !== filterValues.nicheGroup) return false
+      if (filterValues.contentType && channel?.type !== filterValues.contentType) return false
+      if (filterValues.tracking && channel?.tracking !== filterValues.tracking) return false
       if (!searchQuery.trim()) return true
       const query = searchQuery.toLowerCase()
       return (
@@ -334,9 +423,219 @@ export function Dashboard() {
         channel?.type?.toLowerCase().includes(query)
       )
     })
-  }, [channelsState, searchQuery, showUnavailable, showHandleDiff, dateFilter, customRange, filterValues, isEditMode])
+  }, [channelsState, searchQuery, showUnavailable, showHandleDiff, showNeedsAudit, dateFilter, customRange, filterValues])
+
+  /**
+   * Placement per channel: which pool, and what number within it.
+   *
+   * Built from the FULL channel list, never the filtered one, so a channel's
+   * rank is a property of the channel and does not shift as filters change.
+   */
+  const rankingByChannelId = useMemo(
+    () => buildRanking(channelsState, ranking),
+    [channelsState, ranking],
+  )
+
+  /**
+   * The sidebar order: best combined score first.
+   *
+   * Sorting on the score rather than the rank matters when the list mixes
+   * pools, because long-form #1 and Shorts #1 both exist and neither should
+   * automatically precede the other. Because each pool's ranks are assigned in
+   * this same score order, filtering the list to one Type still yields a
+   * contiguous 1, 2, 3.
+   *
+   * Channels with no ranking sink to the bottom rather than sorting as zero —
+   * "not tracked in Neon" is not the same claim as "scored badly", and the
+   * sheet holds more channels than Stage 2 tracks. Unscored channels keep their
+   * original sheet order so the list never reshuffles at random.
+   */
+  const rankedChannels = useMemo(() => {
+    const indexOf = new Map(filteredChannels.map((c, i) => [c.id, i]))
+    return [...filteredChannels].sort((a, b) => {
+      const ea = rankingByChannelId.get(a.id)
+      const eb = rankingByChannelId.get(b.id)
+      if (ea && eb) {
+        // Same pool: order by the assigned rank directly. Sorting by score
+        // again would be one comparator too many — scores tie, and a display
+        // sort that breaks a tie differently from the rank assignment puts a
+        // visible swap in the filtered sequence (…6, 8, 7…).
+        if (ea.pool === eb.pool) return ea.rank - eb.rank
+        // Different pools: scores are comparable (both are percentiles), and
+        // the handle tiebreak matches buildRanking's so the two never disagree.
+        return (
+          eb.cohort.combinedScore - ea.cohort.combinedScore ||
+          a.handle.localeCompare(b.handle)
+        )
+      }
+      if (ea) return -1
+      if (eb) return 1
+      return (indexOf.get(a.id) ?? 0) - (indexOf.get(b.id) ?? 0)
+    })
+  }, [filteredChannels, rankingByChannelId])
+
+  const needsAuditCount = useMemo(
+    () => channelsState.filter(needsAudit).length,
+    [channelsState],
+  )
 
   const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
+
+  /**
+   * Record that a human checked this channel: who, when, and a fingerprint of
+   * the values they stood behind. Saves the fields in the same request, so
+   * Verify works whether or not anything was changed first — confirming a
+   * correct AI classification is the common case and must not require an edit.
+   */
+  const handleVerify = async () => {
+    if (!selectedChannel) return
+    const stampedAt = new Date().toISOString()
+    const stampedBy = currentUser || 'unknown'
+    const stampedHash = auditHash(tempValues)
+
+    setChannelsState2((prev) =>
+      prev.map((c) =>
+        c.id === selectedChannel.id
+          ? {
+              ...c,
+              type: (tempValues.contentType === 'Shorts' ? 'Shorts' : 'Long-Form') as ChannelType,
+              contentType: tempValues.contentType as ContentType,
+              niche: tempValues.niche,
+              category: tempValues.category,
+              format: tempValues.format,
+              producedBy: tempValues.producedBy,
+              nicheGroup: tempValues.nicheGroup,
+              verified: tempValues.verified,
+              tracking: tempValues.tracking as TrackingStatus,
+              auditedBy: stampedBy,
+              auditedAt: stampedAt,
+              auditHash: stampedHash,
+            }
+          : c,
+      ),
+    )
+
+    try {
+      const res = await fetch('/api/channels', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ytUrl: selectedChannel.ytUrl,
+          type: tempValues.contentType,
+          niche: tempValues.niche,
+          category: tempValues.category,
+          format: tempValues.format,
+          producedBy: tempValues.producedBy,
+          nicheGroup: tempValues.nicheGroup,
+          verified: tempValues.verified,
+          tracking: tempValues.tracking,
+          auditedBy: stampedBy,
+          auditedAt: stampedAt,
+          auditHash: stampedHash,
+        }),
+      })
+      const data = await res.json()
+      if (!data.success) throw new Error(data.error || 'Verify failed')
+    } catch (err) {
+      console.error('Verify failed:', err)
+      alert('Could not record the verification. The sheet was not updated.')
+    }
+  }
+
+  /** "Verified by X on Y" while the stamp still matches the fields on screen. */
+  const verifiedLabel = useMemo(() => {
+    if (!selectedChannel) return null
+    if (!isVerificationCurrent(tempValues, selectedChannel.auditHash, selectedChannel.auditedAt)) {
+      return null
+    }
+    const when = selectedChannel.auditedAt?.slice(0, 10) ?? ''
+    return `Verified by ${selectedChannel.auditedBy || 'unknown'}${when ? ` on ${when}` : ''}`
+  }, [selectedChannel, tempValues])
+
+  /** Option lists for the audit form, single-sourced from the master-rules tab. */
+  const auditOptions = useMemo(
+    (): Record<AuditFieldKey, readonly string[]> => ({
+      contentType: CONTENT_TYPES as readonly string[],
+      niche: [...new Set([...masterRules.niches, ...channelsState.map(c => c.niche).filter(Boolean)])],
+      category: masterRules.categories,
+      format: masterRules.formats,
+      producedBy: masterRules.producedBy,
+      nicheGroup: nicheGroups,
+      tracking: TRACKING_STATUSES as readonly string[],
+    }),
+    [masterRules, channelsState, nicheGroups],
+  )
+
+  /**
+   * Keep the audit form in step with the selected channel.
+   *
+   * This has to be an effect keyed on the channel id, not something wired into
+   * the click handler: selectedChannelId is also set by the ?channel= deep link
+   * and by the default-first-channel fallback, neither of which goes through
+   * handleSelectChannel. Under the old Edit button that gap was invisible,
+   * because clicking Edit populated tempValues on the way in. With an
+   * always-editable panel there is no such step, so the form rendered its empty
+   * initial state over a channel that had values — and, being different from
+   * the channel, counted as unsaved. Saving would have written the blanks back
+   * to the sheet.
+   *
+   * Keyed on the id alone so that re-renders (including the optimistic update
+   * after a save) never clobber what is being typed.
+   */
+  useEffect(() => {
+    if (!selectedChannel) return
+    setTempValues({
+      niche: selectedChannel.niche || '',
+      category: selectedChannel.category || '',
+      format: selectedChannel.format || '',
+      producedBy: selectedChannel.producedBy || '',
+      nicheGroup: selectedChannel.nicheGroup || '',
+      contentType: selectedChannel.contentType || "Long-Form",
+      tracking: selectedChannel.tracking,
+      verified: selectedChannel.verified || '',
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChannel?.id])
+
+  /** Unsaved edits exist when any field differs from what the sheet holds. */
+  const isDirty = useMemo(() => {
+    if (!selectedChannel) return false
+    return (
+      tempValues.niche !== (selectedChannel.niche || '') ||
+      tempValues.category !== (selectedChannel.category || '') ||
+      tempValues.format !== (selectedChannel.format || '') ||
+      tempValues.producedBy !== (selectedChannel.producedBy || '') ||
+      tempValues.nicheGroup !== (selectedChannel.nicheGroup || '') ||
+      tempValues.contentType !== (selectedChannel.contentType || 'Long-Form') ||
+      tempValues.tracking !== selectedChannel.tracking ||
+      (tempValues.verified || '') !== (selectedChannel.verified || '')
+    )
+  }, [tempValues, selectedChannel])
+
+  /**
+   * The selected channel's peers: same Type, same Niche, best first.
+   *
+   * Sorted by combined score rather than sheet order, because the question
+   * this row answers is "how does this niche actually perform" — and an
+   * unsorted list of handles cannot answer it. Peers with no score sort last;
+   * they are untracked in Neon, not bad.
+   */
+  const similarChannels = useMemo(() => {
+    const peers = channelsState.filter(
+      (c) =>
+        c.id !== selectedChannelId &&
+        c.type === selectedChannel?.type &&
+        c.niche === selectedChannel?.niche
+    )
+    return peers.sort((a, b) => {
+      const ea = rankingByChannelId.get(a.id)
+      const eb = rankingByChannelId.get(b.id)
+      if (ea && eb) return eb.cohort.combinedScore - ea.cohort.combinedScore
+      if (ea) return -1
+      if (eb) return 1
+      return 0
+    })
+  }, [channelsState, selectedChannelId, selectedChannel, rankingByChannelId])
   const [channelInfo, setChannelInfo] = useState({
     channelName: "—", about: "—", createdOn: "—", subscribers: "—",
     totalVideos: "—", totalViews: "—", country: "—",
@@ -369,16 +668,30 @@ export function Dashboard() {
       .catch(() => { })
   }, [selectedChannelId, channelsState])
   useEffect(() => {
+    const stored = localStorage.getItem("yt-dashboard-bottom-row")
+    if (stored === "uploads" || stored === "similar") setBottomRow(stored)
+  }, [])
+
+  useEffect(() => {
     const handle = channelsState.find(c => c.id === selectedChannelId)?.handle
     if (!handle) return
-    setVideoData(null)
+    setVideos([])
+    setSelectedVideoId(null)
     setVideoPlaying(false)
     setVideoLoading(true)
     const ch = channelsState.find(c => c.id === selectedChannelId)
     fetch(`/api/channel-video?handle=${encodeURIComponent(handle)}&ytUrl=${encodeURIComponent(ch?.ytUrl || '')}`)
       .then(r => r.json())
       .then(data => {
-        if (data.videoId) setVideoData(data)
+        if (Array.isArray(data.videos) && data.videos.length > 0) {
+          setVideos(data.videos as VideoItem[])
+          const index = typeof data.selectedIndex === "number" ? data.selectedIndex : 0
+          setSelectedVideoId(data.videos[index]?.videoId ?? data.videos[0].videoId)
+        } else if (data.videoId) {
+          // Older shape, or a lone video with no resolvable channel.
+          setVideos([data as VideoItem])
+          setSelectedVideoId(data.videoId)
+        }
       })
       .catch(() => { })
       .finally(() => setVideoLoading(false))
@@ -554,16 +867,6 @@ export function Dashboard() {
     setOpenField(null)
   }
 
-  const similarChannels = useMemo(() =>
-    channelsState.filter(
-      (c) =>
-        c.id !== selectedChannelId &&
-        c.type === selectedChannel?.type &&
-        c.niche === selectedChannel?.niche
-    ),
-    [channelsState, selectedChannelId, selectedChannel]
-  )
-
   if (loading || channelsState.length === 0) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
@@ -611,14 +914,76 @@ export function Dashboard() {
           </div>
         </div>
 
+        {/* Needs-audit triage filter */}
+        <div className="flex-shrink-0 px-3 py-2 border-b border-sidebar-border">
+          <button
+            onClick={() => setShowNeedsAudit((v) => !v)}
+            aria-pressed={showNeedsAudit}
+            className={cn(
+              "w-full flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-colors",
+              showNeedsAudit
+                ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
+                : "border-sidebar-border text-muted-foreground hover:text-sidebar-foreground hover:border-amber-500/40",
+            )}
+          >
+            <span className="flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5" />
+              Needs audit
+            </span>
+            <span
+              className={cn(
+                "inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums",
+                showNeedsAudit ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground",
+              )}
+            >
+              {needsAuditCount}
+            </span>
+          </button>
+
+          {/* What the ranking is actually based on. The window is a cap, not a
+              promise — Neon holds far less than 90 days so far — and saying so
+              here is cheaper than having the order quietly mean something
+              other than what the label claims. */}
+          <p className="mt-1.5 text-[10px] leading-tight text-muted-foreground">
+            {rankingError ? (
+              <span className="text-amber-400/80">
+                Ranking unavailable — showing sheet order. {rankingError}
+              </span>
+            ) : ranking ? (
+              <span
+                title={
+                  `Sorted by combined score: 75% Channel Score + 25% Niche Score, both ` +
+                  `percentiles within the channel's own pool. Long-form and Shorts are ` +
+                  `ranked as two separate pools — each has its own #1, and the pool comes ` +
+                  `from the Type column so filtering by Type gives a contiguous 1, 2, 3. ` +
+                  `Window requested ${ranking.requestedDays}d, actually covered ${ranking.coverageDays}d` +
+                  (ranking.coverageStart ? ` (${ranking.coverageStart} to ${ranking.coverageEnd})` : "") +
+                  `. Channels with no Neon metrics sort last.` +
+                  (ranking.warnings.length > 0 ? `\n\n${ranking.warnings.join("\n\n")}` : "")
+                }
+              >
+                Ranked on {ranking.coverageDays}d of data
+                {ranking.coverageDays < ranking.requestedDays &&
+                  ` of ${ranking.requestedDays}d requested`}
+                {" · "}
+                {rankingByChannelId.size} scored
+              </span>
+            ) : (
+              <span>Loading ranking…</span>
+            )}
+          </p>
+        </div>
+
         {/* Channel List */}
         <div className="flex-1 overflow-y-auto">
           <div className="p-2 space-y-1">
-            {filteredChannels.map((channel) => (
+            {rankedChannels.map((channel) => (
               <ChannelCard
                 key={channel.id}
                 channel={channel}
                 isActive={channel.id === selectedChannelId}
+                needsAudit={needsAudit(channel)}
+                entry={rankingByChannelId.get(channel.id)}
                 onClick={() => handleSelectChannel(channel.id)}
                 onDeleteClick={() => setChannelPendingDelete(channel)}
               />
@@ -840,7 +1205,11 @@ export function Dashboard() {
 
             <div className="w-px self-stretch bg-border flex-shrink-0" />
 
-            {/* Inline searchable dropdowns — FILTER MODE or EDIT MODE */}
+            {/* Inline searchable dropdowns — FILTER ONLY.
+                These used to double as the channel editor. One control meaning
+                "show only Gaming" in one mode and "set this channel to Gaming"
+                in the other is a mode error whose cost is a mis-tagged channel,
+                so editing now lives in the audit panel beside the video. */}
             <div className="flex items-stretch flex-nowrap flex-1" ref={settingsBarRef}>
               {([
                 { key: "niche" as const, label: "Niche", options: [...new Set([...masterRules.niches, ...channelsState.map(c => c.niche).filter(Boolean)])] as readonly string[] },
@@ -867,12 +1236,8 @@ export function Dashboard() {
                             : key === "tracking" ? selectedChannel?.tracking
                               : ""
 
-                const displayValue = isEditMode
-                  ? editValue || "—"
-                  : filterValue || channelValue || "All"
-
-
-                const isActive = !isEditMode && filterValue !== ""
+                const displayValue = filterValue || channelValue || "All"
+                const isActive = filterValue !== ""
 
                 const filtered = options.filter((o) =>
                   o.toLowerCase().includes(isOpen ? fieldSearch.toLowerCase() : "")
@@ -926,8 +1291,8 @@ export function Dashboard() {
                             </div>
                           </div>
                           <div className="max-h-60 overflow-y-auto py-1">
-                            {/* "All" option — only for filter mode */}
-                            {!isEditMode && (key === "niche" || key === "category" || key === "format" || key === "producedBy" || key === "nicheGroup" || key === "contentType" || key === "tracking") && (
+                            {/* "All" clears this filter */}
+                            {(
                               <button
                                 onClick={() => handleFilterChange(key, "")}
                                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${filterValue === "" ? "bg-purple-500/10" : "hover:bg-white/5"
@@ -943,11 +1308,11 @@ export function Dashboard() {
                             {filtered.length === 0 ? (
                               <p className="text-xs text-muted-foreground px-4 py-2">No results</p>
                             ) : filtered.map((opt) => {
-                              const isSelected = isEditMode ? opt === editValue : opt === filterValue
+                              const isSelected = opt === filterValue
                               return (
                                 <button
                                   key={opt}
-                                  onClick={() => isEditMode ? handleFieldChange(key, opt) : handleFilterChange(key, opt)}
+                                  onClick={() => handleFilterChange(key, opt)}
                                   className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${isSelected ? "bg-purple-500/10" : "hover:bg-white/5"
                                     }`}
                                 >
@@ -961,7 +1326,7 @@ export function Dashboard() {
                             })}
                             
                             {/* Create New option */}
-                            {isEditMode && (key === "niche" || key === "category" || key === "format" || key === "producedBy") && (
+                            {false && (
                               <div className="px-2 py-2 mt-1 border-t border-border">
                                 <form 
                                   onSubmit={(e) => {
@@ -987,7 +1352,7 @@ export function Dashboard() {
                               </div>
                             )}
 
-                            {isEditMode && key === "nicheGroup" && (
+                            {false && (
                               <div className="px-2 py-2 mt-1 border-t border-border">
                                 <form onSubmit={(e) => {
                                   e.preventDefault()
@@ -1012,29 +1377,23 @@ export function Dashboard() {
 
             </div>
 
-            {/* Edit / Save / Cancel + active filter badge */}
+            {/* Active-filter count and a way back to no filters. Save / Cancel
+                moved to the audit panel with the fields they act on. */}
             <div className="flex items-center gap-2 px-4 flex-shrink-0">
-              {!isEditMode && activeFilterCount > 0 && (
-                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] font-bold flex-shrink-0">
-                  {activeFilterCount}
-                </span>
-              )}
-              {isEditMode ? (
+              {activeFilterCount > 0 && (
                 <>
-                  <Button size="sm" onClick={handleSave}
-                    className="h-7 px-3 text-xs bg-purple-600 hover:bg-purple-700 text-white gap-1 rounded-lg">
-                    <Check className="w-3 h-3" />Save
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={handleCancel}
-                    className="h-7 px-3 text-xs gap-1 rounded-lg">
-                    <X className="w-3 h-3" />Cancel
+                  <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] font-bold flex-shrink-0">
+                    {activeFilterCount}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setFilterValues({ niche: "", category: "", format: "", producedBy: "", nicheGroup: "", contentType: "", tracking: "" })}
+                    className="h-7 px-3 text-xs gap-1 rounded-lg flex-shrink-0"
+                  >
+                    <X className="w-3 h-3" />Clear
                   </Button>
                 </>
-              ) : (
-                <Button size="sm" variant="outline" onClick={handleEdit}
-                  className="h-7 px-3 text-xs gap-1.5 border-purple-500/50 text-purple-400 hover:bg-purple-500/10 rounded-lg flex-shrink-0">
-                  <Pencil className="w-3 h-3" />Edit
-                </Button>
               )}
             </div>
 
@@ -1046,13 +1405,21 @@ export function Dashboard() {
         <div className="flex flex-1 min-h-0 px-5 pt-4 pb-4 gap-4 overflow-hidden">
 
           {/* LEFT — Video Player */}
-          <div className="w-[60%] flex flex-col min-h-0 overflow-y-auto">
-            <div className="w-full rounded-xl overflow-hidden bg-black relative" style={{ aspectRatio: '16/9' }}>
+          <div className="w-[60%] flex flex-col min-h-0 overflow-hidden">
+            {/* Height-driven, not width-driven. Deriving the frame from the
+                available height is what keeps the stat tiles below it on
+                screen without the column scrolling: the player takes the space
+                that is left, and its width follows from the aspect ratio. */}
+            <div className="flex min-h-0 flex-1 items-center justify-center">
+            <div
+              className="relative h-full max-w-full overflow-hidden rounded-xl bg-black"
+              style={{ aspectRatio: videoData?.isShort ? '9/16' : '16/9' }}
+            >
               <div className="absolute inset-0">
                 {videoLoading ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900">
                     <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-white/60 text-sm">Loading {selectedChannel?.handle}&apos;s top video…</p>
+                    <p className="text-white/60 text-sm">Loading {selectedChannel?.handle}&apos;s recent uploads…</p>
                   </div>
                 ) : videoData ? (
                   <iframe
@@ -1071,8 +1438,9 @@ export function Dashboard() {
                 )}
               </div>
             </div>
+            </div>
             {videoData && (videoData.publishedAt || videoData.views || videoData.likes || videoData.comments) && (
-              <div className="flex gap-2 mt-2 flex-wrap">
+              <div className="flex gap-2 mt-2 flex-wrap flex-shrink-0">
                 {videoData.publishedAt && (
                   <div className="flex flex-col gap-0.5 bg-muted/60 border border-border rounded-lg px-3 py-2 flex-1 min-w-[80px]">
                     <span className="text-[9px] text-muted-foreground uppercase tracking-wide">Published</span>
@@ -1101,267 +1469,107 @@ export function Dashboard() {
             )}
           </div>
 
-          {/* RIGHT — Info Cards stacked vertically, fills height of left column */}
-          <div className="w-[40%] flex flex-col h-full min-h-0 gap-3 overflow-y-auto pr-2">
-
-            {/* Channel Identity Card — @handle, badges, YouTube link */}
-            <div className="flex flex-col gap-2 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-lg font-bold text-foreground leading-tight">
-                      {selectedChannel?.handle}
-                    </h2>
-                    {channelInfo.channelName !== '—' && (
-                      <span className="text-lg font-bold text-foreground leading-tight">· {channelInfo.channelName}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${selectedChannel?.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
-                      }`}>{selectedChannel?.type}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/20 text-primary">
-                      {selectedChannel?.niche}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground italic">{selectedChannel?.category}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => toggleFavourite(selectedChannel?.id)}
-                    className="flex items-center justify-center transition-colors hover:scale-110"
-                    title={favouriteData.some(f => f.ytUrl === selectedChannel?.ytUrl && f.addedBy === currentUser) ? "Remove from Favourites" : "Add to Favourites"}
-                  >
-                    <Star
-                      className={`w-5 h-5 transition-colors ${favouriteData.some(f => f.ytUrl === selectedChannel?.ytUrl && f.addedBy === currentUser) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground hover:text-foreground'}`}
-                    />
-                  </button>
-                  {selectedChannel?.ytUrl ? (
-                    <button
-                      onClick={() => window.open(selectedChannel?.ytUrl, "_blank")}
-                      className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 font-medium transition-colors flex-shrink-0"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      YouTube
-                    </button>
-                  ) : (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground font-medium flex-shrink-0 cursor-not-allowed">
-                      <ExternalLink className="w-3 h-3 opacity-50" />
-                      No URL
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="h-px bg-border" />
-            </div>
-
-            {/* About card */}
-            <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">About</span>
-              <p className="text-sm font-medium text-foreground leading-relaxed">
-                {channelInfo.about}
-              </p>
-            </div>
-            {/* Handle Diff Card */}
-            {(channelHasHandleDiff || showHandleDiff) && handleDiffInfo && (
-              <div className="flex flex-col gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex-shrink-0">
-                <span className="text-[10px] text-amber-400 uppercase tracking-wide font-semibold">Handle Change Detected</span>
-                <div className="flex gap-3">
-                  <div className="flex-1 flex flex-col gap-1">
-                    <label className="text-[10px] text-muted-foreground">Previous Handle</label>
-                    {isEditMode ? (
-                      <input
-                        value={handleDiffEdits.previousHandle}
-                        onChange={e => setHandleDiffEdits(p => ({ ...p, previousHandle: e.target.value }))}
-                        className="w-full px-2 py-1 text-sm rounded-md bg-background border border-amber-500/40 text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    ) : (
-                      <p className="text-sm font-medium text-foreground">{handleDiffInfo.previousHandle || "—"}</p>
-                    )}
-                  </div>
-                  <div className="flex-1 flex flex-col gap-1">
-                    <label className="text-[10px] text-muted-foreground">Current Handle</label>
-                    {isEditMode ? (
-                      <input
-                        value={handleDiffEdits.currentHandle}
-                        onChange={e => setHandleDiffEdits(p => ({ ...p, currentHandle: e.target.value }))}
-                        className="w-full px-2 py-1 text-sm rounded-md bg-background border border-amber-500/40 text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    ) : (
-                      <p className="text-sm font-medium text-foreground">{handleDiffInfo.currentHandle || "—"}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
+          {/* RIGHT — Audit panel: facts, About, the classification fields and
+              Remarks, all editable in place. Replaces eight stacked read-only
+              cards; see components/audit-panel.tsx for why the fields moved
+              here from the top bar. */}
+          <div className="w-[40%] flex flex-col h-full min-h-0">
+            {selectedChannel && (
+              <AuditPanel
+                channel={selectedChannel}
+                facts={channelInfo}
+                entry={rankingByChannelId.get(selectedChannel.id)}
+                values={tempValues as AuditValues}
+                options={auditOptions}
+                dirty={isDirty}
+                saving={false}
+                verifiedLabel={verifiedLabel}
+                onVerify={handleVerify}
+                isFavourite={favouriteData.some(f => f.ytUrl === selectedChannel.id && f.addedBy === currentUser)}
+                onChange={(key, value) => setTempValues(prev => ({ ...prev, [key]: value }))}
+                onSave={handleSave}
+                onReset={handleCancel}
+                onToggleFavourite={() => toggleFavourite(selectedChannel.id)}
+              />
             )}
-
-            {/* Unavailable Handle Card */}
-            {channelIsUnavailable && (
-              <div className="flex flex-col gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex-shrink-0">
-                <span className="text-[10px] text-red-400 uppercase tracking-wide font-semibold">
-                  {channelIsUnavailable ? "Resolve Handle" : "Unavailable Handle"}
-                </span>
-                {isEditMode ? (
-                  <input
-                    value={resolvedHandle}
-                    onChange={e => setResolvedHandle(e.target.value)}
-                    placeholder="@newhandle"
-                    className="w-full px-2 py-1 text-sm rounded-md bg-background border border-red-500/40 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-red-500"
-                  />
-                ) : (
-                  <p className="text-sm font-medium text-foreground">
-                    {selectedChannel?.handle && !selectedChannel.handle.toLowerCase().includes('unavailable')
-                      ? selectedChannel.handle
-                      : "Not resolved yet"}
-                  </p>
-                )}
-              </div>
-            )}
-            {/* Subscribers + Total Videos side by side */}
-            <div className="flex gap-3 flex-shrink-0">
-              <div className="flex-1 flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Subscribers</span>
-                <span className="text-lg font-bold text-foreground">{channelInfo.subscribers}</span>
-              </div>
-              <div className="flex-1 flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Videos</span>
-                <span className="text-lg font-bold text-foreground">{channelInfo.totalVideos}</span>
-              </div>
-            </div>
-
-            {/* Total Views + Created On side by side */}
-            <div className="flex gap-3 flex-shrink-0">
-              <div className="flex-1 flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Views</span>
-                <span className="text-lg font-bold text-foreground">{channelInfo.totalViews}</span>
-              </div>
-              <div className="flex-1 flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Created On</span>
-                <span className="text-sm font-bold text-foreground">{channelInfo.createdOn}</span>
-              </div>
-            </div>
-
-            {/* Country — full width */}
-            <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Country</span>
-              <span className="text-sm font-bold text-foreground">{channelInfo.country}</span>
-            </div>
-
-            {/* Niche Group */}
-            {(isEditMode || (!isEditMode && selectedChannel?.nicheGroup)) && (
-              <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-                {isEditMode ? (
-                  <div className="flex flex-col gap-0.5">
-                    <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Niche Group</label>
-                    {nicheGroupCreateMode ? (
-                      <div className="flex gap-1">
-                        <input
-                          value={nicheGroupInput}
-                          onChange={e => setNicheGroupInput(e.target.value)}
-                          placeholder="Type new niche group..."
-                          className="flex-1 px-2 py-1 text-xs rounded-md bg-background border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && nicheGroupInput.trim()) {
-                              setTempValues(prev => ({ ...prev, nicheGroup: nicheGroupInput.trim() }))
-                              setNicheGroupCreateMode(false)
-                              setNicheGroupInput("")
-                            }
-                            if (e.key === 'Escape') {
-                              setNicheGroupCreateMode(false)
-                              setNicheGroupInput("")
-                            }
-                          }}
-                          autoFocus
-                        />
-                        <button
-                          onClick={() => {
-                            if (nicheGroupInput.trim()) {
-                              setTempValues(prev => ({ ...prev, nicheGroup: nicheGroupInput.trim() }))
-                            }
-                            setNicheGroupCreateMode(false)
-                            setNicheGroupInput("")
-                          }}
-                          className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded-md"
-                        >
-                          Add
-                        </button>
-                        <button
-                          onClick={() => { setNicheGroupCreateMode(false); setNicheGroupInput("") }}
-                          className="px-2 py-1 text-xs border border-border rounded-md text-muted-foreground"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <select
-                        value={tempValues.nicheGroup}
-                        onChange={e => {
-                          if (e.target.value === '__create__') {
-                            setNicheGroupCreateMode(true)
-                          } else {
-                            setTempValues(prev => ({ ...prev, nicheGroup: e.target.value }))
-                          }
-                        }}
-                        className="w-full px-2 py-1 text-xs rounded-md bg-background border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      >
-                        <option value="">-- None --</option>
-                        {nicheGroups.map(ng => (
-                          <option key={ng} value={ng}>{ng}</option>
-                        ))}
-                        <option value="__create__">+ Create New</option>
-                      </select>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Niche Group</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary w-fit">{selectedChannel.nicheGroup}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Verified / Remarks card */}
-            <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Verified / Remarks</span>
-              {isEditMode ? (
-                <textarea
-                  value={tempValues.verified}
-                  onChange={(e) => setTempValues((p) => ({ ...p, verified: e.target.value }))}
-                  placeholder="Add verification notes or remarks…"
-                  className="flex-1 w-full text-sm bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none min-h-[72px]"
-                />
-              ) : (
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-foreground leading-relaxed">
-                    {selectedChannel?.verified || "—"}
-                  </p>
-                </div>
-              )}
-            </div>
-
           </div>
         </div>
 
         {/* Spacer to push Similar Channels to the bottom */}
         <div className="flex-none h-4" />
 
-        {/* E) SIMILAR CHANNELS STRIP — 16:9 thumbnail cards */}
-        <div className="flex-shrink-0 px-5 pb-4 overflow-visible relative z-10">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-widest mb-3">
-            Similar Channels
-          </p>
-          {similarChannels.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No similar channels found.</p>
+        {/* E) BOTTOM ROW — the channel's own uploads, or its niche peers.
+            One slot, two purposes: verifying a classification needs this
+            channel's output; finding the next channel needs its neighbours.
+            Deliberately NOT inside the player column — a sibling there
+            competes with the player for height. */}
+        <div className="flex-shrink-0 overflow-visible px-5 pb-4">
+          <div
+            role="radiogroup"
+            aria-label="Bottom row content"
+            className="mb-1 flex items-center gap-4"
+          >
+            {([
+              ["uploads", "Recent Uploads", videos.length],
+              ["similar", "Similar Channels", similarChannels.length],
+            ] as const).map(([key, label, count]) => {
+              const active = bottomRow === key
+              return (
+                <button
+                  key={key}
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => {
+                    setBottomRow(key)
+                    localStorage.setItem("yt-dashboard-bottom-row", key)
+                  }}
+                  className={cn(
+                    "group/radio flex items-center gap-1.5 text-[11px] uppercase tracking-widest transition-colors",
+                    active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-3 w-3 items-center justify-center rounded-full border transition-colors",
+                      active ? "border-primary" : "border-muted-foreground/60",
+                    )}
+                  >
+                    {active && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                  </span>
+                  {label}
+                  <span className="tabular-nums opacity-60">{count}</span>
+                </button>
+              )
+            })}
+
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              scroll sideways · hover a card to preview
+            </span>
+          </div>
+
+          {bottomRow === "uploads" ? (
+            <VideoStrip
+              videos={videos}
+              selectedId={videoData?.videoId ?? null}
+              onSelect={(id) => {
+                setSelectedVideoId(id)
+                setVideoPlaying(false)
+              }}
+            />
+          ) : similarChannels.length === 0 ? (
+            <p className="py-4 text-sm italic text-muted-foreground">
+              No similar channels found.
+            </p>
           ) : (
             <div
-              ref={scrollContainerRef}
-              className="group/strip flex flex-nowrap pl-2 items-start overflow-x-scroll overflow-y-visible gap-3 py-4"
-              onMouseLeave={() => setHoveredSimilarId(null)}
+              ref={similarScrollRef}
+              className="no-scrollbar group/strip flex flex-nowrap items-start gap-3 overflow-x-auto overflow-y-visible py-4 pl-2"
             >
-              {similarChannels.slice(0, 6).map(ch => (
+              {similarChannels.slice(0, 12).map((ch) => (
                 <SimilarChannelCard
                   key={ch.id}
                   channel={ch}
+                  entry={rankingByChannelId.get(ch.id)}
                   onSelect={(id) => handleSelectChannel(id)}
                 />
               ))}
