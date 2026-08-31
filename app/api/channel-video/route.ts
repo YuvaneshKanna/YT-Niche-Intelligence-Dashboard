@@ -8,17 +8,17 @@ import { NextRequest, NextResponse } from 'next/server'
 // is precisely the one a single video cannot settle. It now returns all ten.
 //
 // Quota is unchanged, in fact one unit cheaper: `videos.list` bills per call
-// rather than per id, so statistics for ten videos cost the same single unit as
-// for one, and the channel id + uploads playlist are now resolved in one
-// `channels.list` call instead of two.
+// rather than per id, so statistics for fifteen videos cost the same single
+// unit as for one (the cap is 50), and the channel id + uploads playlist are
+// now resolved in one `channels.list` call instead of two.
 //
 //   channels.list (id + contentDetails)  1 unit   (skipped if the URL has one)
-//   playlistItems.list (10 uploads)      1 unit
-//   videos.list (10 ids, batched)        1 unit
+//   playlistItems.list (15 uploads)      1 unit
+//   videos.list (15 ids, batched)        1 unit
 //                                        -------
 //                                        2-3 units, was 3-4
 
-const UPLOAD_COUNT = 10
+const UPLOAD_COUNT = 15
 
 /** Shorts are <= 60s; used to pick a vertical player frame instead of letterboxing. */
 const SHORT_MAX_SECONDS = 60

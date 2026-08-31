@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, type RefObject } from "react"
 import { Play } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -37,12 +37,16 @@ export function VideoStrip({
   videos,
   selectedId,
   onSelect,
+  scrollRef,
 }: {
   videos: VideoItem[]
   selectedId: string | null
   onSelect: (videoId: string) => void
+  /** Optional external ref on the scroller, so the page can drive it (wheel-to-horizontal). */
+  scrollRef?: RefObject<HTMLDivElement | null>
 }) {
-  const scrollerRef = useRef<HTMLDivElement>(null)
+  const fallbackRef = useRef<HTMLDivElement>(null)
+  const scrollerRef = scrollRef ?? fallbackRef
   const activeRef = useRef<HTMLButtonElement>(null)
 
   // Keep the playing item in view when selection changes from outside the
@@ -56,11 +60,11 @@ export function VideoStrip({
   return (
     <section className="mt-3 flex-shrink-0" aria-label="Recent uploads">
       <div className="mb-1.5 flex items-baseline justify-between px-0.5">
-        <h3 className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+        <h3 className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
           Recent uploads
         </h3>
         <span className="text-[10px] tabular-nums text-muted-foreground">
-          {videos.length} shown
+          {videos.length} shown · scroll for more
         </span>
       </div>
 
@@ -83,7 +87,7 @@ export function VideoStrip({
               aria-label={`Play ${v.title}. ${v.views} views, ${v.duration}, published ${v.publishedAt}`}
               title={`${v.title}\n${v.views} views · ${v.likes} likes · ${v.comments} comments\n${v.publishedAt} · ${v.duration}`}
               className={cn(
-                "group relative w-[112px] flex-shrink-0 rounded-md border text-left outline-none transition-colors",
+                "group relative w-[150px] flex-shrink-0 rounded-md border text-left outline-none transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-primary/70",
                 isActive
                   ? "border-primary bg-primary/10"

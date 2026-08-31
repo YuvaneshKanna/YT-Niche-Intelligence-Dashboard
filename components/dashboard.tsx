@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
 import { VideoStrip, type VideoItem } from "@/components/video-strip"
-import { SimilarChannelCard } from "@/components/similar-channel-card"
 import { UserSelectModal } from "@/components/user-select-modal"
 import { SettingsModal } from "@/components/settings-modal"
 import { PageNav } from "@/components/page-nav"
@@ -234,7 +233,6 @@ export function Dashboard() {
   const [favouriteFilter, setFavouriteFilter] = useState<string>("All")
   const [favouriteData, setFavouriteData] = useState<{ ytUrl: string; addedBy: string; addedAt: string }[]>([])
   const [isFavouritesOpen, setIsFavouritesOpen] = useState(false)
-  const [hoveredSimilarId, setHoveredSimilarId] = useState<string | null>(null)
   const [videoPlaying, setVideoPlaying] = useState(false)
   // The channel's recent uploads, and which one the player is showing. One
   // video cannot settle a classification — Produced_By especially — so the
@@ -371,7 +369,7 @@ export function Dashboard() {
     return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  // Mouse wheel horizontal scroll for Similar Channels
+  // Mouse wheel scrolls the recent-uploads strip horizontally
   useEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
@@ -694,16 +692,6 @@ export function Dashboard() {
     setFilterValues((p) => ({ ...p, [field]: value }))
     setOpenField(null)
   }
-
-  const similarChannels = useMemo(() =>
-    channelsState.filter(
-      (c) =>
-        c.id !== selectedChannelId &&
-        c.type === selectedChannel?.type &&
-        c.niche === selectedChannel?.niche
-    ),
-    [channelsState, selectedChannelId, selectedChannel]
-  )
 
   if (loading || channelsState.length === 0) {
     return (
@@ -1312,15 +1300,6 @@ export function Dashboard() {
                 )}
               </div>
             )}
-
-            <VideoStrip
-              videos={videos}
-              selectedId={videoData?.videoId ?? null}
-              onSelect={(id) => {
-                setSelectedVideoId(id)
-                setVideoPlaying(false)
-              }}
-            />
           </div>
 
           {/* RIGHT — Info Cards stacked vertically, fills height of left column */}
@@ -1567,28 +1546,19 @@ export function Dashboard() {
         {/* Spacer to push Similar Channels to the bottom */}
         <div className="flex-none h-4" />
 
-        {/* E) SIMILAR CHANNELS STRIP — 16:9 thumbnail cards */}
-        <div className="flex-shrink-0 px-5 pb-4 overflow-visible relative z-10">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-widest mb-1.5">
-            Similar Channels
-          </p>
-          {similarChannels.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No similar channels found.</p>
-          ) : (
-            <div
-              ref={scrollContainerRef}
-              className="group/strip flex flex-nowrap pl-2 items-start overflow-x-scroll overflow-y-visible gap-3 py-2"
-              onMouseLeave={() => setHoveredSimilarId(null)}
-            >
-              {similarChannels.slice(0, 6).map(ch => (
-                <SimilarChannelCard
-                  key={ch.id}
-                  channel={ch}
-                  onSelect={(id) => handleSelectChannel(id)}
-                />
-              ))}
-            </div>
-          )}
+        {/* E) RECENT UPLOADS — full width, so a long scroll of the channel's
+            output is readable in one pass. Deliberately NOT inside the player
+            column: a sibling there competes with the player for height. */}
+        <div className="flex-shrink-0 px-5 pb-4">
+          <VideoStrip
+            videos={videos}
+            selectedId={videoData?.videoId ?? null}
+            scrollRef={scrollContainerRef}
+            onSelect={(id) => {
+              setSelectedVideoId(id)
+              setVideoPlaying(false)
+            }}
+          />
         </div>
 
       </main >
