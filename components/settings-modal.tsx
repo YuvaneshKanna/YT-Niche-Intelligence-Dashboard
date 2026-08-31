@@ -19,6 +19,9 @@ function generateSecret(): string {
 }
 
 interface ChatStatus {
+  oauthTokenSet: boolean
+  /** Which backend a subscription-mode message actually takes. */
+  subscriptionBackend: "in-function" | "bridge" | "none"
   sandboxUrlSet: boolean
   sandboxSecretSet: boolean
   bridgeReachable: boolean | null
@@ -115,7 +118,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 onClick={() => set("chatMode", "subscription" as ChatMode)}
                 icon={<Sparkles className="h-4 w-4" />}
                 title="Claude subscription"
-                detail="Runs the Claude CLI on a bridge you host. No per-message cost."
+                detail="Runs Claude Code inside the dashboard's own function. One env var, no per-message cost."
               />
               <ModeCard
                 active={settings.chatMode === "api"}
@@ -128,13 +131,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           </section>
 
           {settings.chatMode === "subscription" && (
-            <SetupChecklist
-              status={status}
-              checking={checking}
-              onRecheck={checkStatus}
-              hasToken={Boolean(settings.claudeOauthToken)}
-              hasSecret={Boolean(settings.bridgeSecret)}
-            />
+            <SetupChecklist status={status} checking={checking} onRecheck={checkStatus} />
           )}
 
           {settings.chatMode === "api" ? (
@@ -161,7 +158,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             <section className="space-y-3">
               <Field
                 label="Claude Code OAuth token"
-                hint="From `claude setup-token`. Used only to build the command below — it is never sent to the server, because Vercel cannot run the CLI."
+                hint="From `claude setup-token`. Kept in this browser only, to fill in the command below — the copy that matters is the one you set in Vercel."
                 value={settings.claudeOauthToken}
                 onChange={(v) => set("claudeOauthToken", v)}
                 secret
@@ -169,22 +166,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 onToggleReveal={() => setReveal((r) => ({ ...r, oauth: !r.oauth }))}
                 placeholder="sk-ant-oat01-…"
               />
-              <Field
-                label="Bridge shared secret"
-                hint="A password you invent, so only your dashboard can talk to the bridge. Click Generate, then set the SAME value as SANDBOX_SHARED_SECRET in Vercel — if they differ, the bridge returns 401."
-                value={settings.bridgeSecret}
-                onChange={(v) => set("bridgeSecret", v)}
-                secret
-                revealed={reveal.bridge}
-                onToggleReveal={() => setReveal((r) => ({ ...r, bridge: !r.bridge }))}
-                placeholder="click Generate"
-                onGenerate={() => {
-                  set("bridgeSecret", generateSecret())
-                  setReveal((r) => ({ ...r, bridge: true }))
-                }}
-              />
-              {settings.bridgeSecret && <VercelEnvHint secret={settings.bridgeSecret} />}
-              <BridgeCommand token={settings.claudeOauthToken} secret={settings.bridgeSecret} />
+              <TokenSetup token={settings.claudeOauthToken} />
             </section>
           )}
 
@@ -193,7 +175,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               label="Chat access token (optional)"
               hint={
                 settings.chatMode === "subscription"
-                  ? "Gates who can use chat at all. Recommended in subscription mode: the bridge spends YOUR Claude limits, so without this anyone who finds the dashboard URL can use them. Set CHAT_ACCESS_TOKEN in Vercel to the same value. Leave blank if you have not set it."
+                  ? "Gates who can use chat at all. Recommended in subscription mode: every answer spends YOUR Claude limits, so without this anyone who finds the dashboard URL can use them. Set CHAT_ACCESS_TOKEN in Vercel to the same value. Leave blank if you have not set it."
                   : "Gates who can use chat at all. Usually unnecessary in API-key mode, since each person supplies their own key — unless the deployment also sets a fallback ANTHROPIC_API_KEY. Leave blank if you have not set CHAT_ACCESS_TOKEN in Vercel."
               }
               value={settings.chatAccessToken}
@@ -347,103 +329,75 @@ function Field({
   )
 }
 
-/** Builds the exact command to start the bridge, with the entered values filled in. */
-function BridgeCommand({ token, secret }: { token: string; secret: string }) {
-  const [copied, setCopied] = useState(false)
-  const [supervised, setSupervised] = useState(true)
-  const ready = Boolean(token && secret)
+/**
+ * The whole of subscription setup: mint a token, put it in Vercel, redeploy.
+ *
+ * Chat runs inside the dashboard's own function, so there is nothing to host,
+ * nothing to keep running and no tunnel to babysit. That is the entire reason
+ * this component is two commands rather than the six the bridge needed.
+ */
+function TokenSetup({ token }: { token: string }) {
+  const [copied, setCopied] = useState<string | null>(null)
+  const ready = Boolean(token)
 
-  const cmd = supervised
-    ? [
-        "npm install -g @anthropic-ai/claude-code pm2",
-        "cd sandbox",
-        `$env:CLAUDE_CODE_OAUTH_TOKEN="${token || "<paste your token above>"}"`,
-        `$env:SANDBOX_SHARED_SECRET="${secret || "<paste your secret above>"}"`,
-        "pm2 start ecosystem.config.cjs",
-        "pm2 save",
-      ].join("\n")
-    : [
-        "npm install -g @anthropic-ai/claude-code",
-        "cd sandbox",
-        `$env:CLAUDE_CODE_OAUTH_TOKEN="${token || "<paste your token above>"}"`,
-        `$env:SANDBOX_SHARED_SECRET="${secret || "<paste your secret above>"}"`,
-        "node server.mjs",
-      ].join("\n")
-
-  const copy = () => {
+  const copy = (key: string, text: string) => {
     navigator.clipboard
-      .writeText(cmd)
+      .writeText(text)
       .then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+        setCopied(key)
+        setTimeout(() => setCopied(null), 2000)
       })
       .catch(() => {
-        // Clipboard can be blocked; the command is visible for manual copying.
+        // Clipboard can be blocked; the commands are visible for manual copying.
       })
   }
 
+  const steps: { key: string; title: string; cmd: string; note: string }[] = [
+    {
+      key: "mint",
+      title: "1. Mint a token",
+      cmd: "claude setup-token",
+      note: "Run it anywhere you are logged into Claude Code, then paste the result above.",
+    },
+    {
+      key: "set",
+      title: "2. Put it in Vercel and redeploy",
+      cmd: [
+        "vercel env add CLAUDE_CODE_OAUTH_TOKEN production",
+        `# paste: ${token || "<paste your token above>"}`,
+        "vercel --prod",
+      ].join("\n"),
+      note: ready
+        ? "Or paste it into Vercel → Settings → Environment Variables by hand. That is the last step."
+        : "Fill in the token above and this becomes ready to paste.",
+    },
+  ]
+
   return (
-    <div className="rounded-lg border border-border bg-background p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-foreground">Start the bridge (PowerShell)</p>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSupervised((v) => !v)}
-            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {supervised ? "Auto-restart (pm2)" : "Plain — no restart"}
-          </button>
-          <button
-            onClick={copy}
-            className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-            {copied ? "Copied" : "Copy"}
-          </button>
+    <div className="space-y-2">
+      {steps.map((s) => (
+        <div key={s.key} className="rounded-lg border border-border bg-background p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-foreground">{s.title}</p>
+            <button
+              onClick={() => copy(s.key, s.cmd)}
+              className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {copied === s.key ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copied === s.key ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <pre className="overflow-x-auto rounded-md bg-muted/40 p-2 text-[10px] leading-relaxed text-foreground">
+            <code>{s.cmd}</code>
+          </pre>
+          <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">{s.note}</p>
         </div>
-      </div>
-      <pre className="overflow-x-auto rounded-md bg-muted/40 p-2 text-[10px] leading-relaxed text-foreground">
-        <code>{cmd}</code>
-      </pre>
-      <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-        {ready
-          ? "Run this in the repo root. Then expose it over HTTPS and set SANDBOX_CHAT_URL and SANDBOX_SHARED_SECRET in Vercel."
-          : "Fill in both fields above and this command becomes ready to paste."}{" "}
-        No Docker needed — it is a plain Node process.
-        {supervised &&
-          " pm2 restarts the bridge if it crashes — it does not manage the cloudflared tunnel, which needs its own window (see sandbox/README.md)."}
+      ))}
+      <p className="text-[10px] leading-relaxed text-muted-foreground">
+        The token authorises your whole Claude account and every answer spends your plan limits, so
+        set a chat access token below before sharing the dashboard URL. Rotate it any time by
+        running <code className="rounded bg-muted px-1">claude setup-token</code> again.
       </p>
-    </div>
-  )
-}
-
-/** Shows the exact Vercel variable to create, with a copy button. */
-function VercelEnvHint({ secret }: { secret: string }) {
-  const [copied, setCopied] = useState(false)
-  const copy = () => {
-    navigator.clipboard
-      .writeText(secret)
-      .then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-      })
-      .catch(() => {
-        // Clipboard blocked — the value is visible above for manual copying.
-      })
-  }
-  return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2">
-      <p className="text-[10px] leading-relaxed text-amber-200/90">
-        Also add this in Vercel as <code className="rounded bg-muted px-1">SANDBOX_SHARED_SECRET</code>,
-        then redeploy. It must match exactly.
-      </p>
-      <button
-        onClick={copy}
-        className="flex flex-shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-      >
-        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-        {copied ? "Copied" : "Copy value"}
-      </button>
     </div>
   )
 }
@@ -451,45 +405,65 @@ function VercelEnvHint({ secret }: { secret: string }) {
 /**
  * Live view of what still has to happen before subscription chat works.
  *
- * The first two rows are local (this browser); the rest are server-side and
- * come from /api/chat/status. Without this, the only feedback was a failed
- * message, which does not say WHICH piece is missing.
+ * Everything here is server-side, from /api/chat/status. Without it the only
+ * feedback was a failed message, which does not say WHICH piece is missing.
+ *
+ * Deployments still on the old self-hosted bridge get its rows instead, so an
+ * existing setup keeps a checklist that matches what it actually runs.
  */
 function SetupChecklist({
   status,
   checking,
   onRecheck,
-  hasToken,
-  hasSecret,
 }: {
   status: ChatStatus | null
   checking: boolean
   onRecheck: () => void
-  hasToken: boolean
-  hasSecret: boolean
 }) {
-  const rows: { label: string; done: boolean | null; note: string }[] = [
-    { label: "OAuth token entered", done: hasToken, note: "in this browser" },
-    { label: "Bridge secret entered", done: hasSecret, note: "in this browser" },
-    {
-      label: "SANDBOX_CHAT_URL set in Vercel",
-      done: status ? status.sandboxUrlSet : null,
-      note: "server env var",
-    },
-    {
-      label: "SANDBOX_SHARED_SECRET set in Vercel",
-      done: status ? status.sandboxSecretSet : null,
-      note: "server env var",
-    },
-    {
-      label: "Bridge running and reachable",
-      done: status ? status.bridgeReachable : null,
-      note:
-        status && status.sandboxUrlSet && status.bridgeReachable === false
-          ? "Vercel cannot reach it — is `node server.mjs` running, and the tunnel up?"
-          : "checked live from the server",
-    },
-  ]
+  const onBridge = status?.subscriptionBackend === "bridge"
+
+  const rows: { label: string; done: boolean | null; note: string }[] = onBridge
+    ? [
+        {
+          label: "SANDBOX_CHAT_URL set in Vercel",
+          done: status.sandboxUrlSet,
+          note: "legacy bridge backend",
+        },
+        {
+          label: "SANDBOX_SHARED_SECRET set in Vercel",
+          done: status.sandboxSecretSet,
+          note: "legacy bridge backend",
+        },
+        {
+          label: "Bridge running and reachable",
+          done: status.bridgeReachable,
+          note:
+            status.bridgeReachable === false
+              ? "Vercel cannot reach it — is `node server.mjs` running, and the tunnel up?"
+              : "Set CLAUDE_CODE_OAUTH_TOKEN in Vercel to retire this entirely.",
+        },
+      ]
+    : [
+        {
+          label: "CLAUDE_CODE_OAUTH_TOKEN set in Vercel",
+          done: status ? status.oauthTokenSet : null,
+          note: status?.oauthTokenSet
+            ? "chat runs inside this deployment — nothing else to start"
+            : "the only variable subscription chat needs",
+        },
+        {
+          label: "Deployed since setting it",
+          done: status ? status.oauthTokenSet : null,
+          note: "env vars only reach the function after a redeploy",
+        },
+        {
+          label: "Chat gated with CHAT_ACCESS_TOKEN",
+          done: status ? status.accessTokenRequired : null,
+          note: status?.accessTokenRequired
+            ? "the dashboard has no login, so this is what protects your plan limits"
+            : "optional, but anyone with the URL can spend your Claude limits without it",
+        },
+      ]
 
   const blocked = rows.some((r) => r.done === false || r.done === null)
 
@@ -531,9 +505,9 @@ function SetupChecklist({
 
       {blocked && (
         <p className="mt-2 border-t border-border pt-2 text-[10px] leading-relaxed text-amber-200/90">
-          Filling the fields above does not start anything — they only build the command. Chat
-          works once every row is green. To use chat right now with no hosting, switch to
-          API-key mode.
+          {onBridge
+            ? "This deployment still routes chat through the self-hosted bridge. Setting CLAUDE_CODE_OAUTH_TOKEN in Vercel takes over from it, and then the bridge, its tunnel and both SANDBOX_ variables can go."
+            : "Entering the token above does not deploy it — Vercel needs its own copy. Chat works once every row is green. To use chat right now without that, switch to API-key mode."}
         </p>
       )}
     </section>

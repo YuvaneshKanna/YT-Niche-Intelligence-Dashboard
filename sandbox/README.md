@@ -1,4 +1,14 @@
-# Claude chat bridge
+# Claude chat bridge — legacy
+
+> **Superseded.** Subscription chat now runs inside the dashboard's own Vercel
+> function — see [`docs/subscription-chat.md`](../docs/subscription-chat.md).
+> Setup is one environment variable: no bridge process, no pm2, no tunnel, no
+> shared secret, no always-on machine.
+>
+> This directory is kept so existing deployments keep working. `/api/chat` falls
+> back to it only when `CLAUDE_CODE_OAUTH_TOKEN` is not set. Everything below
+> describes that older setup.
+
 
 Runs `claude -p` inside a container on **your Claude subscription**, and streams
 answers back to the dashboard. No Anthropic API key.

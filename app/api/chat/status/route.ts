@@ -6,11 +6,15 @@ import { NextRequest } from "next/server"
 // Deliberately returns booleans only — never the secrets themselves.
 
 export async function GET(_request: NextRequest) {
+  const oauthTokenSet = Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN)
   const sandboxUrl = process.env.SANDBOX_CHAT_URL || ""
   const sandboxSecret = Boolean(process.env.SANDBOX_SHARED_SECRET)
 
+  // Only probe the legacy bridge when it is actually the active backend —
+  // otherwise every Settings open pays for a network round trip to a machine
+  // the token has already made irrelevant.
   let bridgeReachable: boolean | null = null
-  if (sandboxUrl && sandboxSecret) {
+  if (!oauthTokenSet && sandboxUrl && sandboxSecret) {
     try {
       const res = await fetch(`${sandboxUrl.replace(/\/$/, "")}/health`, {
         signal: AbortSignal.timeout(5000),
@@ -22,6 +26,13 @@ export async function GET(_request: NextRequest) {
   }
 
   return Response.json({
+    oauthTokenSet,
+    // Which backend a subscription-mode message will actually take.
+    subscriptionBackend: oauthTokenSet
+      ? "in-function"
+      : sandboxUrl && sandboxSecret
+        ? "bridge"
+        : "none",
     sandboxUrlSet: Boolean(sandboxUrl),
     sandboxSecretSet: sandboxSecret,
     bridgeReachable,
