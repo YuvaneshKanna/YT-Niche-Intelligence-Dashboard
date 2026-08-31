@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
 import { VideoStrip, type VideoItem } from "@/components/video-strip"
+import { AuditPanel, type AuditValues, type AuditFieldKey } from "@/components/audit-panel"
 import { SimilarChannelCard } from "@/components/similar-channel-card"
 import { useHorizontalWheel } from "@/lib/useHorizontalWheel"
 import { UserSelectModal } from "@/components/user-select-modal"
@@ -385,16 +386,16 @@ export function Dashboard() {
       }
       if (!isInDateRange(channel.sharedOn, dateFilter, customRange)) return false
       if (showNeedsAudit && !needsAudit(channel)) return false
-      // Dropdown filters (AND logic — only applied in filter mode)
-      if (!isEditMode) {
-        if (filterValues.niche && channel?.niche !== filterValues.niche) return false
-        if (filterValues.category && channel?.category !== filterValues.category) return false
-        if (filterValues.format && channel?.format !== filterValues.format) return false
-        if (filterValues.producedBy && channel?.producedBy !== filterValues.producedBy) return false
-        if (filterValues.nicheGroup && channel?.nicheGroup !== filterValues.nicheGroup) return false
-        if (filterValues.contentType && channel?.type !== filterValues.contentType) return false
-        if (filterValues.tracking && channel?.tracking !== filterValues.tracking) return false
-      }
+      // Dropdown filters (AND logic). The top bar only ever filters — editing
+      // moved to the audit panel, so there is no mode in which these mean
+      // something else.
+      if (filterValues.niche && channel?.niche !== filterValues.niche) return false
+      if (filterValues.category && channel?.category !== filterValues.category) return false
+      if (filterValues.format && channel?.format !== filterValues.format) return false
+      if (filterValues.producedBy && channel?.producedBy !== filterValues.producedBy) return false
+      if (filterValues.nicheGroup && channel?.nicheGroup !== filterValues.nicheGroup) return false
+      if (filterValues.contentType && channel?.type !== filterValues.contentType) return false
+      if (filterValues.tracking && channel?.tracking !== filterValues.tracking) return false
       if (!searchQuery.trim()) return true
       const query = searchQuery.toLowerCase()
       return (
@@ -404,7 +405,7 @@ export function Dashboard() {
         channel?.type?.toLowerCase().includes(query)
       )
     })
-  }, [channelsState, searchQuery, showUnavailable, showHandleDiff, showNeedsAudit, dateFilter, customRange, filterValues, isEditMode])
+  }, [channelsState, searchQuery, showUnavailable, showHandleDiff, showNeedsAudit, dateFilter, customRange, filterValues])
 
   /**
    * Placement per channel: which pool, and what number within it.
@@ -461,6 +462,35 @@ export function Dashboard() {
   )
 
   const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
+
+  /** Option lists for the audit form, single-sourced from the master-rules tab. */
+  const auditOptions = useMemo(
+    (): Record<AuditFieldKey, readonly string[]> => ({
+      contentType: CONTENT_TYPES as readonly string[],
+      niche: [...new Set([...masterRules.niches, ...channelsState.map(c => c.niche).filter(Boolean)])],
+      category: masterRules.categories,
+      format: masterRules.formats,
+      producedBy: masterRules.producedBy,
+      nicheGroup: nicheGroups,
+      tracking: TRACKING_STATUSES as readonly string[],
+    }),
+    [masterRules, channelsState, nicheGroups],
+  )
+
+  /** Unsaved edits exist when any field differs from what the sheet holds. */
+  const isDirty = useMemo(() => {
+    if (!selectedChannel) return false
+    return (
+      tempValues.niche !== (selectedChannel.niche || '') ||
+      tempValues.category !== (selectedChannel.category || '') ||
+      tempValues.format !== (selectedChannel.format || '') ||
+      tempValues.producedBy !== (selectedChannel.producedBy || '') ||
+      tempValues.nicheGroup !== (selectedChannel.nicheGroup || '') ||
+      tempValues.contentType !== (selectedChannel.contentType || 'Long-Form') ||
+      tempValues.tracking !== selectedChannel.tracking ||
+      (tempValues.verified || '') !== (selectedChannel.verified || '')
+    )
+  }, [tempValues, selectedChannel])
 
   const similarChannels = useMemo(
     () =>
@@ -1041,7 +1071,11 @@ export function Dashboard() {
 
             <div className="w-px self-stretch bg-border flex-shrink-0" />
 
-            {/* Inline searchable dropdowns — FILTER MODE or EDIT MODE */}
+            {/* Inline searchable dropdowns — FILTER ONLY.
+                These used to double as the channel editor. One control meaning
+                "show only Gaming" in one mode and "set this channel to Gaming"
+                in the other is a mode error whose cost is a mis-tagged channel,
+                so editing now lives in the audit panel beside the video. */}
             <div className="flex items-stretch flex-nowrap flex-1" ref={settingsBarRef}>
               {([
                 { key: "niche" as const, label: "Niche", options: [...new Set([...masterRules.niches, ...channelsState.map(c => c.niche).filter(Boolean)])] as readonly string[] },
@@ -1068,12 +1102,8 @@ export function Dashboard() {
                             : key === "tracking" ? selectedChannel?.tracking
                               : ""
 
-                const displayValue = isEditMode
-                  ? editValue || "—"
-                  : filterValue || channelValue || "All"
-
-
-                const isActive = !isEditMode && filterValue !== ""
+                const displayValue = filterValue || channelValue || "All"
+                const isActive = filterValue !== ""
 
                 const filtered = options.filter((o) =>
                   o.toLowerCase().includes(isOpen ? fieldSearch.toLowerCase() : "")
@@ -1127,8 +1157,8 @@ export function Dashboard() {
                             </div>
                           </div>
                           <div className="max-h-60 overflow-y-auto py-1">
-                            {/* "All" option — only for filter mode */}
-                            {!isEditMode && (key === "niche" || key === "category" || key === "format" || key === "producedBy" || key === "nicheGroup" || key === "contentType" || key === "tracking") && (
+                            {/* "All" clears this filter */}
+                            {(
                               <button
                                 onClick={() => handleFilterChange(key, "")}
                                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${filterValue === "" ? "bg-purple-500/10" : "hover:bg-white/5"
@@ -1144,11 +1174,11 @@ export function Dashboard() {
                             {filtered.length === 0 ? (
                               <p className="text-xs text-muted-foreground px-4 py-2">No results</p>
                             ) : filtered.map((opt) => {
-                              const isSelected = isEditMode ? opt === editValue : opt === filterValue
+                              const isSelected = opt === filterValue
                               return (
                                 <button
                                   key={opt}
-                                  onClick={() => isEditMode ? handleFieldChange(key, opt) : handleFilterChange(key, opt)}
+                                  onClick={() => handleFilterChange(key, opt)}
                                   className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors ${isSelected ? "bg-purple-500/10" : "hover:bg-white/5"
                                     }`}
                                 >
@@ -1162,7 +1192,7 @@ export function Dashboard() {
                             })}
                             
                             {/* Create New option */}
-                            {isEditMode && (key === "niche" || key === "category" || key === "format" || key === "producedBy") && (
+                            {false && (
                               <div className="px-2 py-2 mt-1 border-t border-border">
                                 <form 
                                   onSubmit={(e) => {
@@ -1188,7 +1218,7 @@ export function Dashboard() {
                               </div>
                             )}
 
-                            {isEditMode && key === "nicheGroup" && (
+                            {false && (
                               <div className="px-2 py-2 mt-1 border-t border-border">
                                 <form onSubmit={(e) => {
                                   e.preventDefault()
@@ -1213,29 +1243,23 @@ export function Dashboard() {
 
             </div>
 
-            {/* Edit / Save / Cancel + active filter badge */}
+            {/* Active-filter count and a way back to no filters. Save / Cancel
+                moved to the audit panel with the fields they act on. */}
             <div className="flex items-center gap-2 px-4 flex-shrink-0">
-              {!isEditMode && activeFilterCount > 0 && (
-                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] font-bold flex-shrink-0">
-                  {activeFilterCount}
-                </span>
-              )}
-              {isEditMode ? (
+              {activeFilterCount > 0 && (
                 <>
-                  <Button size="sm" onClick={handleSave}
-                    className="h-7 px-3 text-xs bg-purple-600 hover:bg-purple-700 text-white gap-1 rounded-lg">
-                    <Check className="w-3 h-3" />Save
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={handleCancel}
-                    className="h-7 px-3 text-xs gap-1 rounded-lg">
-                    <X className="w-3 h-3" />Cancel
+                  <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] font-bold flex-shrink-0">
+                    {activeFilterCount}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setFilterValues({ niche: "", category: "", format: "", producedBy: "", nicheGroup: "", contentType: "", tracking: "" })}
+                    className="h-7 px-3 text-xs gap-1 rounded-lg flex-shrink-0"
+                  >
+                    <X className="w-3 h-3" />Clear
                   </Button>
                 </>
-              ) : (
-                <Button size="sm" variant="outline" onClick={handleEdit}
-                  className="h-7 px-3 text-xs gap-1.5 border-purple-500/50 text-purple-400 hover:bg-purple-500/10 rounded-lg flex-shrink-0">
-                  <Pencil className="w-3 h-3" />Edit
-                </Button>
               )}
             </div>
 
@@ -1311,244 +1335,27 @@ export function Dashboard() {
             )}
           </div>
 
-          {/* RIGHT — Info Cards stacked vertically, fills height of left column */}
-          <div className="w-[40%] flex flex-col h-full min-h-0 gap-3 overflow-y-auto pr-2">
-
-            {/* Channel Identity Card — @handle, badges, YouTube link */}
-            <div className="flex flex-col gap-2 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-lg font-bold text-foreground leading-tight">
-                      {selectedChannel?.handle}
-                    </h2>
-                    {channelInfo.channelName !== '—' && (
-                      <span className="text-lg font-bold text-foreground leading-tight">· {channelInfo.channelName}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${selectedChannel?.type === "Shorts" ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
-                      }`}>{selectedChannel?.type}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/20 text-primary">
-                      {selectedChannel?.niche}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground italic">{selectedChannel?.category}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => toggleFavourite(selectedChannel?.id)}
-                    className="flex items-center justify-center transition-colors hover:scale-110"
-                    title={favouriteData.some(f => f.ytUrl === selectedChannel?.ytUrl && f.addedBy === currentUser) ? "Remove from Favourites" : "Add to Favourites"}
-                  >
-                    <Star
-                      className={`w-5 h-5 transition-colors ${favouriteData.some(f => f.ytUrl === selectedChannel?.ytUrl && f.addedBy === currentUser) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground hover:text-foreground'}`}
-                    />
-                  </button>
-                  {selectedChannel?.ytUrl ? (
-                    <button
-                      onClick={() => window.open(selectedChannel?.ytUrl, "_blank")}
-                      className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 font-medium transition-colors flex-shrink-0"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      YouTube
-                    </button>
-                  ) : (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground font-medium flex-shrink-0 cursor-not-allowed">
-                      <ExternalLink className="w-3 h-3 opacity-50" />
-                      No URL
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="h-px bg-border" />
-            </div>
-
-            {/* About card */}
-            <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">About</span>
-              <p className="text-sm font-medium text-foreground leading-relaxed">
-                {channelInfo.about}
-              </p>
-            </div>
-            {/* Handle Diff Card */}
-            {(channelHasHandleDiff || showHandleDiff) && handleDiffInfo && (
-              <div className="flex flex-col gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex-shrink-0">
-                <span className="text-[10px] text-amber-400 uppercase tracking-wide font-semibold">Handle Change Detected</span>
-                <div className="flex gap-3">
-                  <div className="flex-1 flex flex-col gap-1">
-                    <label className="text-[10px] text-muted-foreground">Previous Handle</label>
-                    {isEditMode ? (
-                      <input
-                        value={handleDiffEdits.previousHandle}
-                        onChange={e => setHandleDiffEdits(p => ({ ...p, previousHandle: e.target.value }))}
-                        className="w-full px-2 py-1 text-sm rounded-md bg-background border border-amber-500/40 text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    ) : (
-                      <p className="text-sm font-medium text-foreground">{handleDiffInfo.previousHandle || "—"}</p>
-                    )}
-                  </div>
-                  <div className="flex-1 flex flex-col gap-1">
-                    <label className="text-[10px] text-muted-foreground">Current Handle</label>
-                    {isEditMode ? (
-                      <input
-                        value={handleDiffEdits.currentHandle}
-                        onChange={e => setHandleDiffEdits(p => ({ ...p, currentHandle: e.target.value }))}
-                        className="w-full px-2 py-1 text-sm rounded-md bg-background border border-amber-500/40 text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    ) : (
-                      <p className="text-sm font-medium text-foreground">{handleDiffInfo.currentHandle || "—"}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
+          {/* RIGHT — Audit panel: facts, About, the classification fields and
+              Remarks, all editable in place. Replaces eight stacked read-only
+              cards; see components/audit-panel.tsx for why the fields moved
+              here from the top bar. */}
+          <div className="w-[40%] flex flex-col h-full min-h-0">
+            {selectedChannel && (
+              <AuditPanel
+                channel={selectedChannel}
+                facts={channelInfo}
+                entry={rankingByChannelId.get(selectedChannel.id)}
+                values={tempValues as AuditValues}
+                options={auditOptions}
+                dirty={isDirty}
+                saving={false}
+                isFavourite={favouriteData.some(f => f.ytUrl === selectedChannel.id && f.addedBy === currentUser)}
+                onChange={(key, value) => setTempValues(prev => ({ ...prev, [key]: value }))}
+                onSave={handleSave}
+                onReset={handleCancel}
+                onToggleFavourite={() => toggleFavourite(selectedChannel.id)}
+              />
             )}
-
-            {/* Unavailable Handle Card */}
-            {channelIsUnavailable && (
-              <div className="flex flex-col gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex-shrink-0">
-                <span className="text-[10px] text-red-400 uppercase tracking-wide font-semibold">
-                  {channelIsUnavailable ? "Resolve Handle" : "Unavailable Handle"}
-                </span>
-                {isEditMode ? (
-                  <input
-                    value={resolvedHandle}
-                    onChange={e => setResolvedHandle(e.target.value)}
-                    placeholder="@newhandle"
-                    className="w-full px-2 py-1 text-sm rounded-md bg-background border border-red-500/40 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-red-500"
-                  />
-                ) : (
-                  <p className="text-sm font-medium text-foreground">
-                    {selectedChannel?.handle && !selectedChannel.handle.toLowerCase().includes('unavailable')
-                      ? selectedChannel.handle
-                      : "Not resolved yet"}
-                  </p>
-                )}
-              </div>
-            )}
-            {/* Subscribers + Total Videos side by side */}
-            <div className="flex gap-3 flex-shrink-0">
-              <div className="flex-1 flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Subscribers</span>
-                <span className="text-lg font-bold text-foreground">{channelInfo.subscribers}</span>
-              </div>
-              <div className="flex-1 flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Videos</span>
-                <span className="text-lg font-bold text-foreground">{channelInfo.totalVideos}</span>
-              </div>
-            </div>
-
-            {/* Total Views + Created On side by side */}
-            <div className="flex gap-3 flex-shrink-0">
-              <div className="flex-1 flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Views</span>
-                <span className="text-lg font-bold text-foreground">{channelInfo.totalViews}</span>
-              </div>
-              <div className="flex-1 flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Created On</span>
-                <span className="text-sm font-bold text-foreground">{channelInfo.createdOn}</span>
-              </div>
-            </div>
-
-            {/* Country — full width */}
-            <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Country</span>
-              <span className="text-sm font-bold text-foreground">{channelInfo.country}</span>
-            </div>
-
-            {/* Niche Group */}
-            {(isEditMode || (!isEditMode && selectedChannel?.nicheGroup)) && (
-              <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-                {isEditMode ? (
-                  <div className="flex flex-col gap-0.5">
-                    <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Niche Group</label>
-                    {nicheGroupCreateMode ? (
-                      <div className="flex gap-1">
-                        <input
-                          value={nicheGroupInput}
-                          onChange={e => setNicheGroupInput(e.target.value)}
-                          placeholder="Type new niche group..."
-                          className="flex-1 px-2 py-1 text-xs rounded-md bg-background border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && nicheGroupInput.trim()) {
-                              setTempValues(prev => ({ ...prev, nicheGroup: nicheGroupInput.trim() }))
-                              setNicheGroupCreateMode(false)
-                              setNicheGroupInput("")
-                            }
-                            if (e.key === 'Escape') {
-                              setNicheGroupCreateMode(false)
-                              setNicheGroupInput("")
-                            }
-                          }}
-                          autoFocus
-                        />
-                        <button
-                          onClick={() => {
-                            if (nicheGroupInput.trim()) {
-                              setTempValues(prev => ({ ...prev, nicheGroup: nicheGroupInput.trim() }))
-                            }
-                            setNicheGroupCreateMode(false)
-                            setNicheGroupInput("")
-                          }}
-                          className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded-md"
-                        >
-                          Add
-                        </button>
-                        <button
-                          onClick={() => { setNicheGroupCreateMode(false); setNicheGroupInput("") }}
-                          className="px-2 py-1 text-xs border border-border rounded-md text-muted-foreground"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <select
-                        value={tempValues.nicheGroup}
-                        onChange={e => {
-                          if (e.target.value === '__create__') {
-                            setNicheGroupCreateMode(true)
-                          } else {
-                            setTempValues(prev => ({ ...prev, nicheGroup: e.target.value }))
-                          }
-                        }}
-                        className="w-full px-2 py-1 text-xs rounded-md bg-background border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      >
-                        <option value="">-- None --</option>
-                        {nicheGroups.map(ng => (
-                          <option key={ng} value={ng}>{ng}</option>
-                        ))}
-                        <option value="__create__">+ Create New</option>
-                      </select>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Niche Group</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary w-fit">{selectedChannel.nicheGroup}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Verified / Remarks card */}
-            <div className="flex flex-col gap-1.5 bg-muted/60 border border-border rounded-xl px-4 py-3 flex-shrink-0">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Verified / Remarks</span>
-              {isEditMode ? (
-                <textarea
-                  value={tempValues.verified}
-                  onChange={(e) => setTempValues((p) => ({ ...p, verified: e.target.value }))}
-                  placeholder="Add verification notes or remarks…"
-                  className="flex-1 w-full text-sm bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none min-h-[72px]"
-                />
-              ) : (
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-foreground leading-relaxed">
-                    {selectedChannel?.verified || "—"}
-                  </p>
-                </div>
-              )}
-            </div>
-
           </div>
         </div>
 
