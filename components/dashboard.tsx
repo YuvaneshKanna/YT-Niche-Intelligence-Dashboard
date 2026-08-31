@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
 import { VideoStrip, type VideoItem } from "@/components/video-strip"
+import { SimilarChannelCard } from "@/components/similar-channel-card"
+import { useHorizontalWheel } from "@/lib/useHorizontalWheel"
 import { UserSelectModal } from "@/components/user-select-modal"
 import { SettingsModal } from "@/components/settings-modal"
 import { PageNav } from "@/components/page-nav"
@@ -212,7 +214,11 @@ export function Dashboard() {
   const [showMonthPicker, setShowMonthPicker] = useState<0 | 1 | null>(null)
   const dateDropdownRef = useRef<HTMLDivElement>(null)
   const settingsBarRef = useRef<HTMLDivElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // Which row the bottom slot shows. Persisted, because it tracks what the
+  // user is doing right now — auditing one channel, or hunting for new ones —
+  // and that does not change from channel to channel.
+  const [bottomRow, setBottomRow] = useState<"uploads" | "similar">("uploads")
+  const { ref: similarScrollRef } = useHorizontalWheel<HTMLDivElement>()
   const [openField, setOpenField] = useState<"niche" | "category" | "format" | "producedBy" | "nicheGroup" | "contentType" | "tracking" | null>(null)
   const [fieldSearch, setFieldSearch] = useState("")
 
@@ -369,18 +375,6 @@ export function Dashboard() {
     return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  // Mouse wheel scrolls the recent-uploads strip horizontally
-  useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      el.scrollLeft += e.deltaY * 2
-    }
-    el.addEventListener("wheel", handleWheel, { passive: false })
-    return () => el.removeEventListener("wheel", handleWheel)
-  }, [scrollContainerRef.current])
-
   const filteredChannels = useMemo(() => {
     return channelsState.filter((channel) => {
       // Toggle filters
@@ -467,6 +461,17 @@ export function Dashboard() {
   )
 
   const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
+
+  const similarChannels = useMemo(
+    () =>
+      channelsState.filter(
+        (c) =>
+          c.id !== selectedChannelId &&
+          c.type === selectedChannel?.type &&
+          c.niche === selectedChannel?.niche
+      ),
+    [channelsState, selectedChannelId, selectedChannel]
+  )
   const [channelInfo, setChannelInfo] = useState({
     channelName: "—", about: "—", createdOn: "—", subscribers: "—",
     totalVideos: "—", totalViews: "—", country: "—",
@@ -498,6 +503,11 @@ export function Dashboard() {
       })
       .catch(() => { })
   }, [selectedChannelId, channelsState])
+  useEffect(() => {
+    const stored = localStorage.getItem("yt-dashboard-bottom-row")
+    if (stored === "uploads" || stored === "similar") setBottomRow(stored)
+  }, [])
+
   useEffect(() => {
     const handle = channelsState.find(c => c.id === selectedChannelId)?.handle
     if (!handle) return
@@ -1546,19 +1556,82 @@ export function Dashboard() {
         {/* Spacer to push Similar Channels to the bottom */}
         <div className="flex-none h-4" />
 
-        {/* E) RECENT UPLOADS — full width, so a long scroll of the channel's
-            output is readable in one pass. Deliberately NOT inside the player
-            column: a sibling there competes with the player for height. */}
-        <div className="flex-shrink-0 px-5 pb-4">
-          <VideoStrip
-            videos={videos}
-            selectedId={videoData?.videoId ?? null}
-            scrollRef={scrollContainerRef}
-            onSelect={(id) => {
-              setSelectedVideoId(id)
-              setVideoPlaying(false)
-            }}
-          />
+        {/* E) BOTTOM ROW — the channel's own uploads, or its niche peers.
+            One slot, two purposes: verifying a classification needs this
+            channel's output; finding the next channel needs its neighbours.
+            Deliberately NOT inside the player column — a sibling there
+            competes with the player for height. */}
+        <div className="flex-shrink-0 overflow-visible px-5 pb-4">
+          <div
+            role="radiogroup"
+            aria-label="Bottom row content"
+            className="mb-1 flex items-center gap-4"
+          >
+            {([
+              ["uploads", "Recent Uploads", videos.length],
+              ["similar", "Similar Channels", similarChannels.length],
+            ] as const).map(([key, label, count]) => {
+              const active = bottomRow === key
+              return (
+                <button
+                  key={key}
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => {
+                    setBottomRow(key)
+                    localStorage.setItem("yt-dashboard-bottom-row", key)
+                  }}
+                  className={cn(
+                    "group/radio flex items-center gap-1.5 text-[11px] uppercase tracking-widest transition-colors",
+                    active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-3 w-3 items-center justify-center rounded-full border transition-colors",
+                      active ? "border-primary" : "border-muted-foreground/60",
+                    )}
+                  >
+                    {active && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                  </span>
+                  {label}
+                  <span className="tabular-nums opacity-60">{count}</span>
+                </button>
+              )
+            })}
+
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              scroll sideways · hover a card to preview
+            </span>
+          </div>
+
+          {bottomRow === "uploads" ? (
+            <VideoStrip
+              videos={videos}
+              selectedId={videoData?.videoId ?? null}
+              onSelect={(id) => {
+                setSelectedVideoId(id)
+                setVideoPlaying(false)
+              }}
+            />
+          ) : similarChannels.length === 0 ? (
+            <p className="py-4 text-sm italic text-muted-foreground">
+              No similar channels found.
+            </p>
+          ) : (
+            <div
+              ref={similarScrollRef}
+              className="group/strip flex flex-nowrap items-start gap-3 overflow-x-scroll overflow-y-visible py-4 pl-2"
+            >
+              {similarChannels.slice(0, 12).map((ch) => (
+                <SimilarChannelCard
+                  key={ch.id}
+                  channel={ch}
+                  onSelect={(id) => handleSelectChannel(id)}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
       </main >
