@@ -292,15 +292,34 @@ export function AuditPanel({
       <div className="flex-shrink-0">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="truncate text-lg font-bold leading-tight text-foreground">
+            <h2 className="truncate text-xl font-bold leading-tight text-foreground">
               {channel.handle}
-              {facts.channelName && facts.channelName !== "—" && (
-                <span className="text-muted-foreground"> · {facts.channelName}</span>
-              )}
             </h2>
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {[values.contentType, values.niche, values.category].filter(Boolean).join(" · ")}
-            </p>
+            {facts.channelName && facts.channelName !== "—" && (
+              <p className="truncate text-xs text-muted-foreground">{facts.channelName}</p>
+            )}
+            <div className="mt-1.5 flex flex-wrap items-center gap-1">
+              {values.contentType && (
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                    values.contentType === "Shorts"
+                      ? "bg-red-500/20 text-red-400"
+                      : "bg-blue-500/20 text-blue-400"
+                  )}
+                >
+                  {values.contentType}
+                </span>
+              )}
+              {values.niche && (
+                <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  {values.niche}
+                </span>
+              )}
+              {values.category && (
+                <span className="text-[10px] italic text-muted-foreground">{values.category}</span>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-shrink-0 items-center gap-2">
@@ -339,23 +358,32 @@ export function AuditPanel({
         </div>
       </div>
 
-      {/* ── Facts. One line, not five bordered cards — these are reference,
-             glanced at once, not the working surface. ── */}
-      <p className="flex-shrink-0 text-[11px] leading-relaxed text-muted-foreground">
-        <span className="font-semibold tabular-nums text-foreground">{facts.subscribers}</span> subs
-        {" · "}
-        <span className="font-semibold tabular-nums text-foreground">{facts.totalVideos}</span> videos
-        {" · "}
-        <span className="font-semibold tabular-nums text-foreground">{facts.totalViews}</span> views
-        {" · created "}
-        <span className="font-semibold text-foreground">{facts.createdOn}</span>
-        {hasCountry && (
-          <>
-            {" · "}
-            <span className="font-semibold text-foreground">{facts.country}</span>
-          </>
+      {/* ── Facts. Labelled tiles, not five stacked bordered cards and not a
+             run-on line: each value has a fixed place on the card, so a glance
+             finds the one you want instead of reading the sentence. ── */}
+      <div
+        className={cn(
+          "grid flex-shrink-0 gap-px overflow-hidden rounded-lg border border-border bg-border",
+          hasCountry ? "grid-cols-5" : "grid-cols-4"
         )}
-      </p>
+      >
+        {[
+          ["Subs", facts.subscribers],
+          ["Videos", facts.totalVideos],
+          ["Views", facts.totalViews],
+          ["Created", facts.createdOn],
+          ...(hasCountry ? [["Country", facts.country] as const] : []),
+        ].map(([label, value]) => (
+          <div key={label} className="bg-muted/40 px-2 py-1.5">
+            <p className="text-[8px] font-medium uppercase tracking-widest text-muted-foreground">
+              {label}
+            </p>
+            <p className="truncate text-[13px] font-bold tabular-nums leading-tight text-foreground">
+              {value}
+            </p>
+          </div>
+        ))}
+      </div>
 
       {/* ── About ── */}
       {facts.about && facts.about !== "—" && (
@@ -420,17 +448,20 @@ export function AuditPanel({
         </div>
       </div>
 
-      {/* ── Remarks ── */}
-      <div className="flex min-h-0 flex-1 flex-col">
-        <p className="mb-0.5 flex-shrink-0 text-[9px] font-medium uppercase tracking-widest text-muted-foreground">
+      {/* ── Remarks. Two lines by default: long enough for the note actually
+             written, short enough not to claim the rest of the column. It
+             scrolls, and drag-resizes vertically for the rare long one. ── */}
+      <div className="flex flex-shrink-0 flex-col">
+        <p className="mb-0.5 text-[9px] font-medium uppercase tracking-widest text-muted-foreground">
           Verified / Remarks
         </p>
         <textarea
           value={values.verified ?? ""}
           onChange={(e) => onChange("verified", e.target.value)}
-          placeholder="What did the videos show? Production style, hooks, anything worth remembering…"
+          rows={2}
+          placeholder="What did the videos show? Production style, hooks…"
           className={cn(
-            "min-h-[72px] w-full flex-1 resize-none rounded-lg border border-border bg-background px-2.5 py-2",
+            "no-scrollbar w-full resize-y rounded-lg border border-border bg-background px-2.5 py-1.5",
             "text-xs leading-snug text-foreground placeholder:text-muted-foreground",
             "focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/40"
           )}

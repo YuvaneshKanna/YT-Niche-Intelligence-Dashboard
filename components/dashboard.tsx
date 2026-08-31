@@ -477,6 +477,37 @@ export function Dashboard() {
     [masterRules, channelsState, nicheGroups],
   )
 
+  /**
+   * Keep the audit form in step with the selected channel.
+   *
+   * This has to be an effect keyed on the channel id, not something wired into
+   * the click handler: selectedChannelId is also set by the ?channel= deep link
+   * and by the default-first-channel fallback, neither of which goes through
+   * handleSelectChannel. Under the old Edit button that gap was invisible,
+   * because clicking Edit populated tempValues on the way in. With an
+   * always-editable panel there is no such step, so the form rendered its empty
+   * initial state over a channel that had values — and, being different from
+   * the channel, counted as unsaved. Saving would have written the blanks back
+   * to the sheet.
+   *
+   * Keyed on the id alone so that re-renders (including the optimistic update
+   * after a save) never clobber what is being typed.
+   */
+  useEffect(() => {
+    if (!selectedChannel) return
+    setTempValues({
+      niche: selectedChannel.niche || '',
+      category: selectedChannel.category || '',
+      format: selectedChannel.format || '',
+      producedBy: selectedChannel.producedBy || '',
+      nicheGroup: selectedChannel.nicheGroup || '',
+      contentType: selectedChannel.contentType || "Long-Form",
+      tracking: selectedChannel.tracking,
+      verified: selectedChannel.verified || '',
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChannel?.id])
+
   /** Unsaved edits exist when any field differs from what the sheet holds. */
   const isDirty = useMemo(() => {
     if (!selectedChannel) return false
