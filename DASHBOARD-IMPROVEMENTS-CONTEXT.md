@@ -1,6 +1,6 @@
 # Dashboard improvements — session context / handoff
 
-Started 2026-08-30. Read this to continue from a fresh session.
+Started 2026-08-30, Chunk 2 added 2026-08-31. Read this to continue from a fresh session.
 
 ---
 
@@ -38,7 +38,7 @@ Join between the two today is by **handle** (fragile — handles change; the das
 
 ### What is NOT in Neon (drives the chunk order)
 
-- **True channel-created date (real channel age).** Nowhere. Page 1 scrapes it live per-channel via `/api/channel-stats` and throws it away. **Proxy available now:** `MIN(videos.published_at)` per `channel_id` — a usable lower bound with zero new scraping.
+- **True channel-created date (real channel age).** Nowhere. Page 1 scrapes it live per-channel via `/api/channel-stats` and throws it away. **Proxy shipped in Chunk 2:** `MIN(videos.published_at)` per `channel_id`. Measured 2026-08-31: 189/189 channels resolve one, but `videos` holds a median of only **31** uploads per channel (min 1, max 178), so this is a *lower bound* — a high-cadence channel running for years can report a first upload only weeks old. Age spread from the proxy: p25 67d, p50 124d, p75 209d, max 3431d.
 - **Authenticity fields.** Nothing structured. `produced_by` (e.g. "Human Editor") is the only proxy.
 - **Audit metadata** — audited-by / audited-at / audit-status. Not stored anywhere (would live Sheet-side).
 
@@ -68,13 +68,27 @@ A channel is flagged if **Niche, Category, or Produced By** is blank/whitespace.
 
 Known limits (accepted for now): can't tell "reviewed, field legitimately N/A" from "never looked at" — it only sees emptiness. No real audited-by / audited-at (that's Chunk 3).
 
-### Chunk 2 — Page 2 metrics, Neon read-only — NEXT
+### Chunk 2 — Page 2 metrics, Neon read-only — DONE (not yet merged)
 
-Additive only: one SQL change in `lib/metrics/neon.ts`, type additions in `lib/metrics/types.ts`, aggregation in `lib/metrics/aggregate.ts`, and the outlier table component `components/metrics/outlier-table.tsx`. No schema migration.
+Branch: `feat/metrics-young-authentic-chunk2`, branched off `feat/audit-throughput-chunk1` (Chunk 1 was still unmerged). Commit `cc44869`. Additive and read-only — no schema migration, no Sheet change. `tsc --noEmit` + `next build` clean; verified against live Neon through `/api/metrics?range=30d`.
 
-1. **Channel-age proxy column** on the Trending Outliers table — `MIN(videos.published_at)` per channel, surfaced as days-since-first-video. Sortable. Also add it to the niche-group cards if it fits cleanly.
-2. **"Young breakout" quick filter** on the outlier table — age ≤ ~90d AND high views/day (tune threshold against real data).
-3. **"Authentic only" toggle** on the outlier table — filter on `produced_by` (interim, until the real rubric in Chunk 3), so the opportunity list isn't polluted by slop.
+Files touched: `lib/metrics/neon.ts`, `lib/metrics/types.ts`, `lib/metrics/aggregate.ts`, `app/api/metrics/route.ts`, `components/metrics/outlier-table.tsx`, `components/metrics/niche-metrics.tsx`.
+
+1. **Channel-age proxy.** New `readChannelFirstVideoDates()` in `lib/metrics/neon.ts` — one unwindowed `SELECT channel_id, MIN(published_at) FROM videos GROUP BY channel_id`, returned as `Map<channel_id, YYYY-MM-DD>`. Unwindowed on purpose: the point is to look further back than the requested snapshot range. Runs once per cache miss alongside the two existing reads.
+
+   The read is **Neon-only** — the Sheets path has no equivalent — so it enters the aggregator as the optional `AggregateInput.firstVideoByChannelId`. When absent, every age field is null and the aggregator stays source-agnostic. `app/api/chat/route.ts` still reads Sheets, so ages are null there; wire it up if that ever matters.
+
+   New fields: `ChannelRollup.firstVideoAt` / `.channelAgeDays`, `VideoRollup.producedBy` / `.channelFirstVideoAt` / `.channelAgeDays`, `NicheGroupSummary.medianChannelAgeDays`. All ages measured from one `Date.now()` per aggregation.
+
+   Surfaced as a sortable **"Ch. age"** column (amber under 90d) and a **median-age readout on the niche-group cards**. Every surface labels it as *oldest tracked upload* and carries the lower-bound caveat in a tooltip — do not let it get relabelled "channel age".
+
+2. **"Young breakout" filter.** `channelAgeDays ≤ 90` **AND** `viewsPerDay ≥ p75` of the rows currently on screen. The velocity bar is deliberately *relative* — computed per format and per range from the visible list — so it retunes itself as the roster changes instead of a magic constant going stale. Measured 2026-08-31 over 30d: long-form p75 = 968 views/day (263 of 3867 qualify), Shorts p75 = 17,248 views/day (312 of 1988 qualify).
+
+3. **"Authentic only" filter.** Keeps human production styles; hides `AI Tools`, `AI image`, `Stickman/AI`, `AI+B-Roll+Editor`, `Stock Slideshow`, **and blanks** (unaudited ≠ authentic). User chose this set on 2026-08-31 from the live `produced_by` distribution. It is the single `NON_AUTHENTIC_PRODUCED_BY` set in `components/metrics/outlier-table.tsx` — one-line edit if the call changes.
+
+Also in this chunk, as fallout of adding a nullable sort column: **nulls now sort last in both directions** in the outlier table. Previously `?? 0` made a null `viewsPerDay` sort as zero; an unknown channel age would have read as "brand new".
+
+Known limits (accepted): the age proxy understates age for high-cadence channels (see above); `produced_by` is a production-style label, not an authenticity judgement — Chunk 3 replaces both.
 
 ### Chunk 3 — persistence (do WITH the user, riskiest)
 
@@ -110,14 +124,14 @@ Stack: Next.js 16.3.2 (Turbopack), React 19-ish, Node 24. `next build` regenerat
 
 ## Resume checklist
 
-1. `git checkout feat/audit-throughput-chunk1` (or `main` if Chunk 1 is merged).
-2. If Chunk 1 is merged: branch `feat/metrics-young-authentic-chunk2` off `main`.
-3. Read `lib/metrics/aggregate.ts` and `components/metrics/outlier-table.tsx` before touching Chunk 2 — they weren't read in the first session.
-4. Build the age-proxy SQL, verify against Neon directly, then wire the column.
-5. `npx tsc --noEmit` and `npx next build` before every push. One chunk per branch/commit; let the user verify the preview between chunks.
+1. Chunks 1 and 2 are both **pushed but unmerged**, and Chunk 2 is stacked on Chunk 1. Merge them in order (1 then 2), or merge Chunk 2 alone only after rebasing it onto `main`.
+2. Chunk 3 is the persistence chunk — do it **with the user**, it is the expensive-to-undo one. Read `.agents/schema.sql` and the Stage 2 n8n writer before proposing a migration.
+3. `npx tsc --noEmit` and `npx next build` before every push. One chunk per branch/commit; let the user verify the preview between chunks.
+4. Useful during Chunk 2: local verification was `npx next dev -p 3999` then `curl "http://127.0.0.1:3999/api/metrics?range=30d"` and inspecting the JSON — faster than clicking through the preview to confirm a new field is populated.
+5. Source files are **CRLF**. Anchored find-and-replace with LF-only anchors silently matches zero times — normalise line endings in any edit script.
 
 ## Open decisions for the user
 
-- Merge Chunk 1 to `main` or keep iterating on the branch?
-- Chunk 2 "young" threshold — 90 days? 180? Decide against the real age distribution once the column exists.
+- Merge Chunk 1 and Chunk 2 to `main`, or keep stacking branches?
 - Chunk 3 authenticity: new Sheet columns vs one JSON column in the existing remarks/verified field.
+- Should the `/api/chat` route move off Sheets onto Neon so the assistant sees the same age/authenticity fields the page does?
