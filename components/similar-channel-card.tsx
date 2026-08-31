@@ -37,7 +37,7 @@ export function SimilarChannelCard({ channel, onSelect }: SimilarChannelCardProp
 
     return (
         <div
-            className="flex-shrink-0 w-[calc(25%-12px)] rounded-xl overflow-hidden bg-muted/60 border border-border cursor-pointer group relative transition-all duration-200 scale-100 group-hover/strip:scale-95 hover:!scale-105 hover:z-10"
+            className="flex-shrink-0 w-[200px] rounded-xl overflow-hidden bg-muted/60 border border-border cursor-pointer group relative transition-all duration-200 scale-100 group-hover/strip:scale-95 hover:!scale-105 hover:z-10"
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
             onClick={() => onSelect(channel.id)}
@@ -67,8 +67,8 @@ export function SimilarChannelCard({ channel, onSelect }: SimilarChannelCardProp
                 {/* Hover overlay when showing thumbnail */}
                 {!isHovered && thumbnail && (
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors duration-200 flex items-center justify-center">
-                        <div className="w-12 h-12 rounded-full bg-red-600/0 group-hover:bg-red-600 transition-all duration-200 flex items-center justify-center">
-                            <svg viewBox="0 0 24 24" fill="white" className="w-5 h-5 ml-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        <div className="w-9 h-9 rounded-full bg-red-600/0 group-hover:bg-red-600 transition-all duration-200 flex items-center justify-center">
+                            <svg viewBox="0 0 24 24" fill="white" className="w-4 h-4 ml-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                                 <path d="M8 5v14l11-7z" />
                             </svg>
                         </div>
@@ -77,15 +77,15 @@ export function SimilarChannelCard({ channel, onSelect }: SimilarChannelCardProp
             </div>
 
             {/* Channel info */}
-            <div className="px-3 py-2">
-                <p className="text-sm font-semibold text-foreground truncate">{channel.handle}</p>
-                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${channel.type === 'Shorts' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
+            <div className="px-2 py-1.5">
+                <p className="text-xs font-semibold text-foreground truncate">{channel.handle}</p>
+                <div className="flex items-center gap-1 mt-1 flex-nowrap overflow-hidden">
+                    <span className={`text-[9px] px-1.5 py-px rounded-full font-medium flex-shrink-0 ${channel.type === 'Shorts' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
                         }`}>{channel.type}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-primary/20 text-primary">
+                    <span className="text-[9px] px-1.5 py-px rounded-full font-medium bg-primary/20 text-primary flex-shrink-0 truncate">
                         {channel.niche}
                     </span>
-                    <span className="text-[10px] text-muted-foreground italic">· {channel.category}</span>
+                    <span className="text-[9px] text-muted-foreground italic truncate">{channel.category}</span>
                 </div>
             </div>
         </div>

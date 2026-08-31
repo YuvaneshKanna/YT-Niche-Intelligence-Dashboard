@@ -1252,7 +1252,9 @@ export function Dashboard() {
           <div className="w-[60%] flex flex-col min-h-0 overflow-y-auto">
             <div
               className={cn(
-                "w-full rounded-xl overflow-hidden bg-black relative mx-auto",
+                // flex-shrink-0 is load-bearing: without it the player is the
+                // flex item that gives up height when anything is added below.
+                "w-full flex-shrink-0 rounded-xl overflow-hidden bg-black relative mx-auto",
                 // A Short in a 16:9 frame is mostly black bars, which makes the
                 // production quality — the thing being judged — hard to see.
                 videoData?.isShort && "max-w-[calc((100vh-22rem)*0.5625)]",
@@ -1283,7 +1285,7 @@ export function Dashboard() {
               </div>
             </div>
             {videoData && (videoData.publishedAt || videoData.views || videoData.likes || videoData.comments) && (
-              <div className="flex gap-2 mt-2 flex-wrap">
+              <div className="flex gap-2 mt-2 flex-wrap flex-shrink-0">
                 {videoData.publishedAt && (
                   <div className="flex flex-col gap-0.5 bg-muted/60 border border-border rounded-lg px-3 py-2 flex-1 min-w-[80px]">
                     <span className="text-[9px] text-muted-foreground uppercase tracking-wide">Published</span>
@@ -1567,7 +1569,7 @@ export function Dashboard() {
 
         {/* E) SIMILAR CHANNELS STRIP — 16:9 thumbnail cards */}
         <div className="flex-shrink-0 px-5 pb-4 overflow-visible relative z-10">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-widest mb-3">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-widest mb-1.5">
             Similar Channels
           </p>
           {similarChannels.length === 0 ? (
@@ -1575,7 +1577,7 @@ export function Dashboard() {
           ) : (
             <div
               ref={scrollContainerRef}
-              className="group/strip flex flex-nowrap pl-2 items-start overflow-x-scroll overflow-y-visible gap-3 py-4"
+              className="group/strip flex flex-nowrap pl-2 items-start overflow-x-scroll overflow-y-visible gap-3 py-2"
               onMouseLeave={() => setHoveredSimilarId(null)}
             >
               {similarChannels.slice(0, 6).map(ch => (

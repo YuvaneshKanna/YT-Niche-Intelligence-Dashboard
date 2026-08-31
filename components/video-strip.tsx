@@ -54,7 +54,7 @@ export function VideoStrip({
   if (videos.length === 0) return null
 
   return (
-    <section className="mt-3" aria-label="Recent uploads">
+    <section className="mt-3 flex-shrink-0" aria-label="Recent uploads">
       <div className="mb-1.5 flex items-baseline justify-between px-0.5">
         <h3 className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
           Recent uploads
