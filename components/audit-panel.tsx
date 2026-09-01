@@ -7,6 +7,8 @@ import { BadgeCheck, Check, ChevronDown, ExternalLink, Plus, Search, Star } from
 import { cn } from "@/lib/utils"
 import type { Channel } from "@/lib/constants"
 import type { RankedEntry } from "@/lib/useRankings"
+import type { NicheScore } from "@/lib/scoring/types"
+import { ScoreHoverCard } from "@/components/score-hover-card"
 
 export type AuditFieldKey =
   | "contentType"
@@ -255,6 +257,7 @@ export function AuditPanel({
   channel,
   facts,
   entry,
+  nicheScore,
   values,
   options,
   dirty,
@@ -270,6 +273,8 @@ export function AuditPanel({
   channel: Channel
   facts: ChannelFacts
   entry?: RankedEntry
+  /** This channel's own niche, scored within its own pool — see dashboard.tsx's selectedNicheScore. */
+  nicheScore?: NicheScore | null
   values: AuditValues
   options: Record<AuditFieldKey, readonly string[]>
   dirty: boolean
@@ -334,33 +339,39 @@ export function AuditPanel({
 
           <div className="flex flex-shrink-0 items-center gap-2">
             {entry && (
-              <div
-                className={cn(
-                  "flex flex-col items-center rounded-lg border px-2 py-1 leading-none",
-                  entry.cohort.combinedScore >= 70
-                    ? "border-emerald-500/40 bg-emerald-500/10"
-                    : entry.cohort.combinedScore >= 40
-                      ? "border-sky-500/40 bg-sky-500/10"
-                      : "border-border bg-muted/60"
-                )}
-                title={`Rank ${entry.rank} of ${entry.poolSize} among ${entry.pool === "SHORTS" ? "Shorts" : "long-form"} channels · combined ${entry.cohort.combinedScore} (Channel ${entry.cohort.channelScore}, Niche ${entry.cohort.nicheScore ?? "—"})`}
+              <ScoreHoverCard
+                entry={entry}
+                variant="large"
+                nicheScore={nicheScore}
+                ariaLabel={`Ranked ${entry.rank} of ${entry.poolSize} among ${entry.pool === "SHORTS" ? "Shorts" : "long-form"} channels. Show the full score breakdown.`}
               >
-                <span
+                <div
                   className={cn(
-                    "text-base font-bold tabular-nums",
+                    "flex flex-col items-center rounded-lg border px-2 py-1 leading-none transition-colors",
                     entry.cohort.combinedScore >= 70
-                      ? "text-emerald-300"
+                      ? "border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20"
                       : entry.cohort.combinedScore >= 40
-                        ? "text-sky-300"
-                        : "text-muted-foreground"
+                        ? "border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20"
+                        : "border-border bg-muted/60 hover:bg-muted"
                   )}
                 >
-                  {entry.cohort.combinedScore}
-                </span>
-                <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
-                  #{entry.rank} {entry.pool === "SHORTS" ? "SH" : "LF"}
-                </span>
-              </div>
+                  <span
+                    className={cn(
+                      "text-base font-bold tabular-nums",
+                      entry.cohort.combinedScore >= 70
+                        ? "text-emerald-300"
+                        : entry.cohort.combinedScore >= 40
+                          ? "text-sky-300"
+                          : "text-muted-foreground"
+                    )}
+                  >
+                    {entry.cohort.combinedScore}
+                  </span>
+                  <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                    #{entry.rank} {entry.pool === "SHORTS" ? "SH" : "LF"}
+                  </span>
+                </div>
+              </ScoreHoverCard>
             )}
             <button
               onClick={onToggleFavourite}

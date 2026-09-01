@@ -509,6 +509,20 @@ export function Dashboard() {
   }, [showChat, channelsState, rankedChannels, activeFiltersLabel, selectedChannel, rankingByChannelId])
 
   /**
+   * The selected channel's own niche, scored within its own pool — same key
+   * derivation rank.ts uses server-side ("Unclassified" for a blank niche),
+   * so this always names the exact niche cohort.nicheScore came from.
+   * Feeds the big header hover card's "What drives the niche score" section.
+   */
+  const selectedNicheScore = useMemo(() => {
+    if (!selectedChannel) return null
+    const entry = rankingByChannelId.get(selectedChannel.id)
+    if (!entry) return null
+    const key = selectedChannel.niche.trim() || "Unclassified"
+    return ranking?.niches.find((n) => n.formatClass === entry.pool && n.niche === key) ?? null
+  }, [selectedChannel, rankingByChannelId, ranking])
+
+  /**
    * Record that a human checked this channel: who, when, and a fingerprint of
    * the values they stood behind. Saves the fields in the same request, so
    * Verify works whether or not anything was changed first — confirming a
@@ -1529,6 +1543,7 @@ export function Dashboard() {
                 channel={selectedChannel}
                 facts={channelInfo}
                 entry={rankingByChannelId.get(selectedChannel.id)}
+                nicheScore={selectedNicheScore}
                 values={tempValues as AuditValues}
                 options={auditOptions}
                 dirty={isDirty}
