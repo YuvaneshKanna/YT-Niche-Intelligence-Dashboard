@@ -30,20 +30,6 @@ const TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS || 120_000)
 const RUNTIME_DIR = path.join(os.tmpdir(), "niche-chat")
 const CONFIG_DIR = path.join(RUNTIME_DIR, "claude-config")
 
-const SYSTEM_RULES = `You are a YouTube strategy analyst embedded in the user's own niche-tracking dashboard.
-
-The user's message contains a DATA block with their live metrics followed by their QUESTION. Answer only from that data.
-
-Rules:
-- Cite the actual numbers. Never invent a metric. If the data does not support an answer, say so plainly.
-- Keep Shorts and long-form separate — different baselines, different behaviour. Never merge them into one figure.
-- Check dominance before calling something a trend. One video or channel carrying a group is a fact to state, not a trend.
-- HHI: above ~2500 one channel dominates and entry is hard; below ~1500 the niche is fragmented and open.
-- The Shorts/long-form split thins beyond 7 days because the pipeline deletes HISTORICAL video rows after a week. Total views are unaffected. Say so when a claim rests on older split data.
-- "Overall" is every channel with no Niche_Group set. It is a baseline, not a real cohort.
-- Score components marked "estimate" are authored assumptions, not measurements. Never present them as measured.
-- Be concise. Lead with the answer, then the numbers. No preamble.`
-
 /** Sessions we have seen, so follow-ups can resume rather than resend context. */
 const sessions = new Map<string, { sessionId: string; lastUsed: number }>()
 const SESSION_TTL_MS = 60 * 60 * 1000
@@ -60,6 +46,8 @@ export function subscriptionChatReady(): boolean {
 export interface SubscriptionChatArgs {
   question: string
   context: string
+  /** Persona + ground rules for this page's data. Caller picks — see app/api/chat/route.ts. */
+  systemRules: string
   chatId: string
   model?: string
   effort?: string
@@ -72,7 +60,7 @@ export interface SubscriptionChatArgs {
  * shape the sandbox bridge emitted so the chat panel needs no changes.
  */
 export function streamFromSubscription(args: SubscriptionChatArgs): Response {
-  const { question, context, chatId, model, effort, signal } = args
+  const { question, context, systemRules, chatId, model, effort, signal } = args
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -122,7 +110,7 @@ export function streamFromSubscription(args: SubscriptionChatArgs): Response {
           systemPrompt: {
             type: "preset",
             preset: "claude_code",
-            append: SYSTEM_RULES,
+            append: systemRules,
             // Git status, directory listings and the like describe the Vercel
             // build image, not anything the analyst should reason about.
             excludeDynamicSections: true,

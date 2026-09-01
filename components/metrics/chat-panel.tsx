@@ -35,25 +35,44 @@ const RATE_LIMIT_LABEL: Record<string, string> = {
 interface ChatPanelProps {
   open: boolean
   onClose: () => void
-  range: RangeKey
-  nicheGroup: string | null
+  /** Small text next to the "Ask Claude" title — e.g. a niche group + range, or nothing. */
+  subtitle?: string | null
+  /** Suggested opening questions, shown until the first message is sent. */
+  suggestions: string[]
+  /** One-line description of what data Claude can see on this page. */
+  aboutBlurb: string
+  /** Input placeholder. Defaults to the metrics-page phrasing. */
+  placeholder?: string
+  /**
+   * Which server-side persona + data source this page maps to. "metrics"
+   * (default) keeps the original behaviour — /api/chat builds its own context
+   * from Neon/Sheets for `range`. "roster" sends a client-built `context`
+   * string instead (see lib/chat/roster-context.ts) and needs no `range`.
+   */
+  page?: "metrics" | "roster"
+  range?: RangeKey
+  /** Required when page="roster"; ignored for "metrics". */
+  context?: string
 }
 
-const SUGGESTIONS = [
-  "Which niche group has the strongest momentum right now, and is it one channel carrying it?",
-  "Compare Shorts and long-form across the groups — where is the gap widest?",
-  "What do the BREAKOUT videos have in common?",
-  "Which group is most worth investing in next month, and why?",
-]
-
 /**
- * Chat over the niche metrics.
+ * Chat over this page's own data.
  *
  * The browser talks to /api/chat, which runs Claude Code on your subscription
  * token inside its own function. No model credentials exist in this component,
  * and none are ever sent from the browser in subscription mode.
  */
-export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) {
+export function ChatPanel({
+  open,
+  onClose,
+  subtitle = null,
+  suggestions,
+  aboutBlurb,
+  placeholder = "Ask about a niche group, a channel, or what to make next…",
+  page = "metrics",
+  range,
+  context,
+}: ChatPanelProps) {
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
@@ -160,7 +179,8 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
         body: JSON.stringify({
           question: q,
           chatId: chatIdRef.current,
-          range,
+          page,
+          ...(page === "roster" ? { context } : { range }),
           // Only meaningful in subscription mode — the API path picks its
           // model up from the x-anthropic-model header already in chatHeaders.
           ...(mode === "subscription" ? { model: model || undefined, effort: effort || undefined } : {}),
@@ -248,9 +268,7 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold text-foreground">Ask Claude</h2>
-            <span className="text-[11px] text-muted-foreground">
-              {nicheGroup ? `${nicheGroup} · ${range}` : range}
-            </span>
+            {subtitle && <span className="text-[11px] text-muted-foreground">{subtitle}</span>}
           </div>
           <button
             onClick={onClose}
@@ -301,13 +319,9 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
         <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           {turns.length === 0 && (
             <div>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Ask anything about the tracked niche groups. Claude sees the same aggregated
-                metrics this page renders — groups, channels, daily trends and top videos by
-                views/day.
-              </p>
+              <p className="text-xs leading-relaxed text-muted-foreground">{aboutBlurb}</p>
               <div className="mt-3 space-y-1.5">
-                {SUGGESTIONS.map((s) => (
+                {suggestions.map((s) => (
                   <button
                     key={s}
                     onClick={() => send(s)}
@@ -360,7 +374,7 @@ export function ChatPanel({ open, onClose, range, nicheGroup }: ChatPanelProps) 
                 }
               }}
               rows={2}
-              placeholder="Ask about a niche group, a channel, or what to make next…"
+              placeholder={placeholder}
               className="min-h-[44px] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/50"
             />
             {busy ? (

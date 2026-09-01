@@ -145,7 +145,10 @@ async function getContext(range: RangeKey): Promise<string> {
 const json = (body: unknown, status: number) =>
   Response.json(body as Record<string, unknown>, { status })
 
-const SYSTEM_RULES = `You are a YouTube strategy analyst embedded in the user's own niche-tracking dashboard. You answer questions about the metrics you are given.
+/** Which page is asking, and therefore which persona + data this turn is grounded in. */
+type ChatPage = "metrics" | "roster"
+
+const METRICS_SYSTEM_RULES = `You are a YouTube strategy analyst embedded in the user's own niche-tracking dashboard. You answer questions about the metrics you are given.
 
 Rules:
 - Cite the actual numbers. Never invent a metric. If the data does not support an answer, say so plainly.
@@ -157,10 +160,25 @@ Rules:
 - Score components marked "estimate" are authored assumptions, not measurements.
 - Be concise. Lead with the answer, then the numbers. No preamble.`
 
+const ROSTER_SYSTEM_RULES = `You are embedded in the "YT Niche Overview" audit page — a human works channel by channel here, correcting Niche/Category/Format/Produced By/Niche Group/Type/Tracking and writing Verified/Remarks notes. You answer questions about that roster and about each channel's Neon-derived rank.
+
+Rules:
+- Cite the actual numbers and handles. Never invent a channel, a field value, or a score.
+- "Needs audit" means missing Niche, Category or Produced By, OR a classified field has changed since a human last verified it — not a quality judgement.
+- A channel with no Neon score is not scored badly — it means Stage 2 has not synced that handle into Neon yet, or the handle changed and no longer matches Neon's record. Say so plainly, never present "no score" as a low score.
+- Rank and score are per pool (long-form vs Shorts) — never compare a long-form rank to a Shorts rank as if they share a scale.
+- The "channels currently in view" section reflects whatever filter the human has applied on screen right now; the "roster breakdown" section is always the full roster regardless of filter. Be clear about which one you're answering from.
+- Be concise. Lead with the answer, then the numbers. No preamble.`
+
+function systemRulesFor(page: ChatPage): string {
+  return page === "roster" ? ROSTER_SYSTEM_RULES : METRICS_SYSTEM_RULES
+}
+
 /** Streams a reply from the Anthropic API using a caller-supplied key. */
 function streamFromApi(
   apiKey: string,
   model: string,
+  systemRules: string,
   context: string,
   question: string
 ): Response {
@@ -181,7 +199,7 @@ function streamFromApi(
           thinking: { type: "adaptive" },
           output_config: { effort: "medium" },
           system: [
-            { type: "text", text: SYSTEM_RULES },
+            { type: "text", text: systemRules },
             { type: "text", text: context, cache_control: { type: "ephemeral" } },
           ],
           messages: [{ role: "user", content: question }],
@@ -275,7 +293,18 @@ export async function POST(request: NextRequest) {
     return json({ error: "Chat access token required or incorrect.", code: "LOCKED" }, 401)
   }
 
-  let body: { question?: string; chatId?: string; range?: string; model?: string; effort?: string }
+  let body: {
+    question?: string
+    chatId?: string
+    range?: string
+    model?: string
+    effort?: string
+    /** Which page is asking — picks the persona and, for "roster", skips server aggregation. */
+    page?: string
+    /** Client-built context. Required for page="roster" (see lib/chat/roster-context.ts);
+     *  ignored for "metrics", which always builds its own from Neon/Sheets. */
+    context?: string
+  }
   try {
     body = await request.json()
   } catch {
@@ -286,33 +315,45 @@ export async function POST(request: NextRequest) {
   if (!question) return json({ error: "question is required" }, 400)
   if (question.length > 4000) return json({ error: "question is too long" }, 400)
 
-  const range: RangeKey =
-    body.range === "7d" ||
-    body.range === "14d" ||
-    body.range === "30d" ||
-    body.range === "90d" ||
-    body.range === "180d"
-      ? body.range
-      : "30d"
+  const page: ChatPage = body.page === "roster" ? "roster" : "metrics"
+  const systemRules = systemRulesFor(page)
 
   let context: string
-  try {
-    context = await getContext(range)
-  } catch (err: unknown) {
-    if (err instanceof MetricsConfigError || err instanceof SheetsConfigError) {
-      return json({ error: err.message, code: "CONFIG" }, 503)
+  if (page === "roster") {
+    // Cheap and already in the caller's hands — the audit page's roster is
+    // loaded client-side, so there is no server fetch to do or cache here.
+    context = String(body.context ?? "").trim()
+    if (!context) return json({ error: "context is required for page=roster" }, 400)
+    if (context.length > 200_000) return json({ error: "context is too large" }, 400)
+  } else {
+    const range: RangeKey =
+      body.range === "7d" ||
+      body.range === "14d" ||
+      body.range === "30d" ||
+      body.range === "90d" ||
+      body.range === "180d"
+        ? body.range
+        : "30d"
+
+    try {
+      context = await getContext(range)
+    } catch (err: unknown) {
+      if (err instanceof MetricsConfigError || err instanceof SheetsConfigError) {
+        return json({ error: err.message, code: "CONFIG" }, 503)
+      }
+      return json({ error: err instanceof Error ? err.message : "Failed to load metrics" }, 500)
     }
-    return json({ error: err instanceof Error ? err.message : "Failed to load metrics" }, 500)
   }
 
   if (mode === "api") {
-    return streamFromApi(apiKey, model, context, question)
+    return streamFromApi(apiKey, model, systemRules, context, question)
   }
 
   if (inFunction) {
     return streamFromSubscription({
       question,
       context,
+      systemRules,
       chatId: body.chatId || crypto.randomUUID(),
       model: body.model,
       effort: body.effort,
