@@ -3,8 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import Link from "next/link"
-import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, Settings as SettingsIcon, Sparkles } from "lucide-react"
-import * as XLSX from "xlsx"
+import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, Settings as SettingsIcon, Sparkles, Download } from "lucide-react"
 import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
 import { DayPicker } from "react-day-picker"
@@ -23,6 +22,8 @@ import { SettingsModal } from "@/components/settings-modal"
 import { PageNav } from "@/components/page-nav"
 import { ChatPanel } from "@/components/metrics/chat-panel"
 import { buildRosterContext } from "@/lib/chat/roster-context"
+import { ExportModal } from "@/components/export-modal"
+import { downloadXlsx } from "@/lib/xlsxExport"
 
 import {
   type Channel,
@@ -335,11 +336,10 @@ export function Dashboard() {
       "Shared On": c.sharedOn,
     }))
 
-    const worksheet = XLSX.utils.json_to_sheet(data)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Favourites")
-    XLSX.writeFile(workbook, "YT-Niche-Favourites.xlsx")
+    downloadXlsx(data, "YT-Niche-Favourites.xlsx", "Favourites")
   }
+
+  const [showExportModal, setShowExportModal] = useState(false)
 
   const [tempValues, setTempValues] = useState({
     niche: "",
@@ -1452,14 +1452,24 @@ export function Dashboard() {
               )}
             </div>
 
-            <button
-              onClick={() => setShowChat(true)}
-              aria-label="Ask Claude about this roster"
-              className="ml-auto flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              Ask Claude
-            </button>
+            <div className="ml-auto flex flex-shrink-0 items-center gap-2">
+              <button
+                onClick={() => setShowExportModal(true)}
+                aria-label="Export the filtered roster to Excel"
+                className="flex items-center gap-1.5 rounded-lg border border-sidebar-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export
+              </button>
+              <button
+                onClick={() => setShowChat(true)}
+                aria-label="Ask Claude about this roster"
+                className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Ask Claude
+              </button>
+            </div>
 
           </div>
         </div>
@@ -1765,6 +1775,12 @@ export function Dashboard() {
 
       <UserSelectModal onSelect={(user) => setCurrentUser(user)} />
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
+      <ExportModal
+        open={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        channels={rankedChannels}
+        rankingByChannelId={rankingByChannelId}
+      />
 
       <ChatPanel
         open={showChat}
