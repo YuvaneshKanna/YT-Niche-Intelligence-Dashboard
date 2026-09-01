@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useMemo, useRef, useEffect } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import Link from "next/link"
 import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, Settings as SettingsIcon } from "lucide-react"
 import * as XLSX from "xlsx"
@@ -478,6 +479,26 @@ export function Dashboard() {
     () => channelsState.filter(needsAudit).length,
     [channelsState],
   )
+
+  /**
+   * Sidebar virtualization. The roster runs into the hundreds and every card
+   * is a real DOM subtree (badges, hover cards, an overflow menu), so an
+   * unvirtualized list was rendering all of it at once on every filter change.
+   *
+   * Card height is not fixed — the niche-group badge row and the "not
+   * tracked" placeholder are both conditional — so this measures each card
+   * after render (`measureElement`) rather than assuming one row height.
+   */
+  const sidebarScrollRef = useRef<HTMLDivElement>(null)
+  const rowVirtualizer = useVirtualizer({
+    count: rankedChannels.length,
+    getScrollElement: () => sidebarScrollRef.current,
+    // A ChannelCard with no niche group and no rank badge is the shortest
+    // case; overestimating a little is cheaper than a visible jump on first
+    // paint, so this leans toward the common (nicheGroup-present) height.
+    estimateSize: () => 184,
+    overscan: 8,
+  })
 
   const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
 
@@ -975,25 +996,39 @@ export function Dashboard() {
         </div>
 
         {/* Channel List */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-2 space-y-1">
-            {rankedChannels.map((channel) => (
-              <ChannelCard
-                key={channel.id}
-                channel={channel}
-                isActive={channel.id === selectedChannelId}
-                needsAudit={needsAudit(channel)}
-                entry={rankingByChannelId.get(channel.id)}
-                onClick={() => handleSelectChannel(channel.id)}
-                onDeleteClick={() => setChannelPendingDelete(channel)}
-              />
-            ))}
-            {filteredChannels.length === 0 && (
-              <p className="text-center text-muted-foreground py-8 text-sm">
-                No channels found
-              </p>
-            )}
-          </div>
+        <div ref={sidebarScrollRef} className="flex-1 overflow-y-auto pt-1 pb-2">
+          {filteredChannels.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8 text-sm">
+              No channels found
+            </p>
+          ) : (
+            <div
+              className="relative px-2"
+              style={{ height: rowVirtualizer.getTotalSize() }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const channel = rankedChannels[virtualRow.index]
+                return (
+                  <div
+                    key={channel.id}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    className="absolute top-0 left-0 w-full pb-1"
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    <ChannelCard
+                      channel={channel}
+                      isActive={channel.id === selectedChannelId}
+                      needsAudit={needsAudit(channel)}
+                      entry={rankingByChannelId.get(channel.id)}
+                      onClick={() => handleSelectChannel(channel.id)}
+                      onDeleteClick={() => setChannelPendingDelete(channel)}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </aside>
 

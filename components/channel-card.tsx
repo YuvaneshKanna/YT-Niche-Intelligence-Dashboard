@@ -97,6 +97,14 @@ export function ChannelCard({ channel, isActive, needsAudit, entry, onClick, onD
             <span className="ml-0.5 text-[9px] uppercase opacity-70">{POOL_TAG[entry.pool]}</span>
           </ScoreHoverCard>
         )}
+        {!entry && (
+          <span
+            className="flex-shrink-0 text-[9px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground"
+            title="Not scored — this handle has no matching row in Neon yet (not synced by Stage 2, or the handle changed and no longer matches)."
+          >
+            Not tracked
+          </span>
+        )}
         {needsAudit && (
           <span
             className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"
@@ -152,7 +160,16 @@ export function ChannelCard({ channel, isActive, needsAudit, entry, onClick, onD
         </div>
       )}
 
-      {/* Row 5: combined-score bar + cohort tag. Hover for the full breakdown. */}
+      {/* Row 5: combined-score bar + cohort tag. Hover for the full breakdown.
+          Unscored channels get a dashed placeholder in the same slot, so the
+          card rhythm stays constant and the gap reads as "no data" rather
+          than a layout hiccup. */}
+      {!entry && (
+        <span
+          className="mt-2 block h-1 w-full rounded-full border border-dashed border-muted-foreground/25"
+          title="Not scored — no matching Neon row for this handle."
+        />
+      )}
       {entry && (
         <ScoreHoverCard
           entry={entry}

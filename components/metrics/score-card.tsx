@@ -22,6 +22,14 @@ function scoreColor(score: number): string {
   return "text-red-400"
 }
 
+// Same bands as scoreColor, as a bar fill — the meter should read at a
+// glance from color + width together, not force a look up at the number.
+function scoreBarColor(score: number): string {
+  if (score >= 70) return "bg-emerald-400"
+  if (score >= 45) return "bg-amber-400"
+  return "bg-red-400"
+}
+
 interface ScoreCardProps {
   title: string
   subtitle: string
@@ -62,7 +70,7 @@ export function ScoreCard({ title, subtitle, score }: ScoreCardProps) {
 
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-primary transition-all duration-500"
+            className={`h-full rounded-full transition-all duration-500 ${scoreBarColor(score.score)}`}
             style={{ width: `${score.score}%` }}
           />
         </div>
