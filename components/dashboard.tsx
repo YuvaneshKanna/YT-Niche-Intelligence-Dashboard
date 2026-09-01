@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import Link from "next/link"
-import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, Settings as SettingsIcon } from "lucide-react"
+import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, Settings as SettingsIcon, Sparkles } from "lucide-react"
 import * as XLSX from "xlsx"
 import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
@@ -15,12 +15,14 @@ import { Badge } from "@/components/ui/badge"
 import { ChannelCard } from "@/components/channel-card"
 import { VideoStrip, type VideoItem } from "@/components/video-strip"
 import { AuditPanel, type AuditValues, type AuditFieldKey } from "@/components/audit-panel"
-import { auditHash, isVerificationCurrent } from "@/lib/auditHash"
+import { auditHash, isVerificationCurrent, needsAudit } from "@/lib/auditHash"
 import { SimilarChannelCard } from "@/components/similar-channel-card"
 import { useHorizontalWheel } from "@/lib/useHorizontalWheel"
 import { UserSelectModal } from "@/components/user-select-modal"
 import { SettingsModal } from "@/components/settings-modal"
 import { PageNav } from "@/components/page-nav"
+import { ChatPanel } from "@/components/metrics/chat-panel"
+import { buildRosterContext } from "@/lib/chat/roster-context"
 
 import {
   type Channel,
@@ -31,37 +33,6 @@ import {
 import { useChannels } from "@/lib/useChannels"
 import { buildRanking, useRankings } from "@/lib/useRankings"
 import { cn } from "@/lib/utils"
-
-/**
- * A channel needs audit until a human has confirmed its classification.
- *
- * Blank required fields still count — Niche, Category and Produced By are what
- * the Niche Breakdown page aggregates by, and Niche Group is deliberately not
- * among them, since a blank group on its own is fine.
- *
- * But emptiness alone was never the real signal: it cannot distinguish "the AI
- * filled this in and a human checked it" from "the AI filled this in and nobody
- * has looked", and the AI is not always right — which is the entire reason this
- * page exists. So a channel is only clear once someone pressed Verify AND the
- * fields still match what they verified. Edit any field afterwards and the
- * recorded hash stops matching, so it returns to the queue by itself.
- */
-function needsAudit(c: Channel): boolean {
-  if (!c.niche?.trim() || !c.category?.trim() || !c.producedBy?.trim()) return true
-  return !isVerificationCurrent(
-    {
-      contentType: c.contentType,
-      niche: c.niche,
-      category: c.category,
-      format: c.format,
-      producedBy: c.producedBy,
-      nicheGroup: c.nicheGroup,
-      tracking: c.tracking,
-    },
-    c.auditHash,
-    c.auditedAt,
-  )
-}
 
 const normHandleKey = (h: string) => (h || "").trim().toLowerCase().replace(/^@/, "")
 
@@ -210,6 +181,7 @@ export function Dashboard() {
   }, [channelsState])
 
   const [showSettings, setShowSettings] = useState(false)
+  const [showChat, setShowChat] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [showUnavailable, setShowUnavailable] = useState(false)
   const [showHandleDiff, setShowHandleDiff] = useState(false)
@@ -501,6 +473,40 @@ export function Dashboard() {
   })
 
   const selectedChannel = channelsState.find(c => c.id === selectedChannelId) ?? channelsState[0]
+
+  /** Human-readable summary of the active top-bar filters, for the chat context and nothing else. */
+  const activeFiltersLabel = useMemo(() => {
+    const parts: string[] = []
+    if (filterValues.niche) parts.push(`niche=${filterValues.niche}`)
+    if (filterValues.category) parts.push(`category=${filterValues.category}`)
+    if (filterValues.format) parts.push(`format=${filterValues.format}`)
+    if (filterValues.producedBy) parts.push(`producedBy=${filterValues.producedBy}`)
+    if (filterValues.nicheGroup) parts.push(`nicheGroup=${filterValues.nicheGroup}`)
+    if (filterValues.contentType) parts.push(`type=${filterValues.contentType}`)
+    if (filterValues.tracking) parts.push(`tracking=${filterValues.tracking}`)
+    if (dateFilter !== "All Time") parts.push(`dateAdded=${dateFilter}`)
+    if (searchQuery.trim()) parts.push(`search="${searchQuery.trim()}"`)
+    if (showNeedsAudit) parts.push("needs audit only")
+    if (showUnavailable) parts.push("unavailable handles only")
+    if (showHandleDiff) parts.push("handle-diff only")
+    return parts.length ? parts.join(", ") : null
+  }, [filterValues, dateFilter, searchQuery, showNeedsAudit, showUnavailable, showHandleDiff])
+
+  /**
+   * Built client-side from what's already loaded — no server round trip, and
+   * it reflects exactly what the human sees, filters and all. Recomputed
+   * lazily (only while the panel is open) since it walks the whole roster.
+   */
+  const rosterChatContext = useMemo(() => {
+    if (!showChat) return ""
+    return buildRosterContext({
+      allChannels: channelsState,
+      filteredChannels: rankedChannels,
+      activeFilters: activeFiltersLabel,
+      selected: selectedChannel ?? null,
+      rankingByChannelId,
+    })
+  }, [showChat, channelsState, rankedChannels, activeFiltersLabel, selectedChannel, rankingByChannelId])
 
   /**
    * Record that a human checked this channel: who, when, and a fingerprint of
@@ -1432,6 +1438,15 @@ export function Dashboard() {
               )}
             </div>
 
+            <button
+              onClick={() => setShowChat(true)}
+              aria-label="Ask Claude about this roster"
+              className="ml-auto flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Ask Claude
+            </button>
+
           </div>
         </div>
 
@@ -1735,6 +1750,22 @@ export function Dashboard() {
 
       <UserSelectModal onSelect={(user) => setCurrentUser(user)} />
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
+
+      <ChatPanel
+        open={showChat}
+        onClose={() => setShowChat(false)}
+        page="roster"
+        context={rosterChatContext}
+        subtitle={activeFiltersLabel ?? `${channelsState.length} channels`}
+        aboutBlurb="Ask about the roster: audit status, Niche/Category/Produced By/Tracking, Neon rank, or a specific channel. Claude sees the same filtered list and audit-panel detail this page shows right now."
+        placeholder="Ask about a channel, the audit queue, or the current filter…"
+        suggestions={[
+          "Which channels need audit in the current filter, and what's missing?",
+          "Which tracked channels have no Neon score, and why might that be?",
+          "Summarise the roster by Niche and Produced By.",
+          "What's the rank and score of the channel I have open?",
+        ]}
+      />
     </div >
   )
 }

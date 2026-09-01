@@ -65,3 +65,47 @@ export function isVerificationCurrent(
   if (!recordedHash?.trim()) return false
   return auditHash(values) === recordedHash.trim()
 }
+
+/**
+ * A channel needs audit until a human has confirmed its classification.
+ *
+ * Blank required fields still count — Niche, Category and Produced By are what
+ * the Niche Breakdown page aggregates by, and Niche Group is deliberately not
+ * among them, since a blank group on its own is fine.
+ *
+ * But emptiness alone was never the real signal: it cannot distinguish "the AI
+ * filled this in and a human checked it" from "the AI filled this in and nobody
+ * has looked", and the AI is not always right — which is the entire reason this
+ * page exists. So a channel is only clear once someone pressed Verify AND the
+ * fields still match what they verified. Edit any field afterwards and the
+ * recorded hash stops matching, so it returns to the queue by itself.
+ *
+ * Lives here (not in the dashboard component) so any consumer — the audit
+ * page, the roster chat context — computes the same answer from one place.
+ */
+export function needsAudit(c: {
+  niche?: string
+  category?: string
+  producedBy?: string
+  contentType?: string
+  format?: string
+  nicheGroup?: string
+  tracking?: string
+  auditHash?: string
+  auditedAt?: string
+}): boolean {
+  if (!c.niche?.trim() || !c.category?.trim() || !c.producedBy?.trim()) return true
+  return !isVerificationCurrent(
+    {
+      contentType: c.contentType,
+      niche: c.niche,
+      category: c.category,
+      format: c.format,
+      producedBy: c.producedBy,
+      nicheGroup: c.nicheGroup,
+      tracking: c.tracking,
+    },
+    c.auditHash,
+    c.auditedAt,
+  )
+}

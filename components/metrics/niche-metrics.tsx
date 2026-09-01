@@ -711,8 +711,16 @@ export function NicheMetrics() {
       <ChatPanel
         open={showChat}
         onClose={() => setShowChat(false)}
+        page="metrics"
         range={range}
-        nicheGroup={selectedGroup}
+        subtitle={selectedGroup ? `${selectedGroup} · ${range}` : range}
+        aboutBlurb="Ask anything about the tracked niche groups. Claude sees the same aggregated metrics this page renders — groups, channels, daily trends and top videos by views/day."
+        suggestions={[
+          "Which niche group has the strongest momentum right now, and is it one channel carrying it?",
+          "Compare Shorts and long-form across the groups — where is the gap widest?",
+          "What do the BREAKOUT videos have in common?",
+          "Which group is most worth investing in next month, and why?",
+        ]}
       />
     </div>
   )
