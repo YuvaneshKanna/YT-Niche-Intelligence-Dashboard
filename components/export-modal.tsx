@@ -30,6 +30,7 @@ type DateMode = "all" | "custom"
 interface CountState {
   videoRows: number
   channelOnlyRows: number
+  rosterOnlyRows: number
   totalRows: number
   channels: number
 }
@@ -142,7 +143,7 @@ export function ExportModal({
   useEffect(() => {
     if (!open || !options) return
     if (selectedNiches.size === 0) {
-      setCounts({ videoRows: 0, channelOnlyRows: 0, totalRows: 0, channels: 0 })
+      setCounts({ videoRows: 0, channelOnlyRows: 0, rosterOnlyRows: 0, totalRows: 0, channels: 0 })
       return
     }
     const timer = setTimeout(() => {
@@ -366,6 +367,22 @@ export function ExportModal({
                 <p className="mt-1.5 text-[11px] text-muted-foreground/70">
                   Range: {rangeLabel}. Data held from {options.minDate ?? "—"} onward.
                 </p>
+                {/* The roster rows carry no snapshot date, so a custom range
+                    cannot honestly include them. Said out loud, because the
+                    row count changes the moment the range is narrowed. */}
+                {options.roster.available && options.roster.onlyChannels > 0 && (
+                  <p className="mt-1 text-[11px] text-muted-foreground/70">
+                    {dateMode === "all"
+                      ? `Includes ${options.roster.onlyChannels} roster channels with no metrics yet, one ROSTER_ONLY row each.`
+                      : `${options.roster.onlyChannels} roster channels with no metrics are left out of a custom range — they have no snapshot date. Use All time to include them.`}
+                  </p>
+                )}
+                {!options.roster.available && (
+                  <p className="mt-1 flex items-center gap-1.5 text-[11px] text-amber-400">
+                    <AlertCircle className="h-3 w-3" /> Roster sheet unreachable — exporting
+                    database channels only.
+                  </p>
+                )}
               </section>
 
               {unappliedFilters.length > 0 && (
@@ -392,6 +409,7 @@ export function ExportModal({
                 <Check className="h-3 w-3 text-emerald-400" />
                 {counts.totalRows.toLocaleString()} rows · {counts.channels} channels ·{" "}
                 {counts.channelOnlyRows.toLocaleString()} channel-only
+                {counts.rosterOnlyRows > 0 && ` · ${counts.rosterOnlyRows} roster-only`}
               </>
             ) : (
               "Counting rows…"

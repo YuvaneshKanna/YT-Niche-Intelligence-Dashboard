@@ -70,7 +70,10 @@ export async function GET(request: NextRequest) {
       const counts = await countExportRows(filters)
       return NextResponse.json({
         success: true,
-        data: { ...counts, totalRows: counts.videoRows + counts.channelOnlyRows },
+        data: {
+          ...counts,
+          totalRows: counts.videoRows + counts.channelOnlyRows + counts.rosterOnlyRows,
+        },
       })
     }
 

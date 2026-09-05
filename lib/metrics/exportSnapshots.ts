@@ -23,6 +23,7 @@
 
 import { sql } from "@/lib/metrics/db"
 import { deriveVideoUrl, secondsToHms } from "@/lib/metrics/neon"
+import { handleKey, tryReadRoster, type RosterEntry } from "@/lib/metrics/rosterSheet"
 import type { VideoType } from "@/lib/metrics/types"
 
 export type TrackingFilter = "YES" | "NO" | "ALL"
@@ -116,6 +117,13 @@ export interface SnapshotExportOptions {
   maxDate: string | null
   niches: { niche: string; channels: number }[]
   tracking: { yes: number; no: number; unknown: number }
+  /** Roster channels with no metrics in the database at all. */
+  roster: {
+    available: boolean
+    error: string | null
+    /** Handles in the Manual Sheet with no row in `channels`. */
+    onlyChannels: number
+  }
 }
 
 const str = (v: unknown): string => (v == null ? "" : String(v))
@@ -129,6 +137,46 @@ const numOrNull = (v: unknown): number | null =>
  * than being flattened into NO.
  */
 const trackingLabel = (v: unknown): string => (v == null ? "" : v ? "YES" : "NO")
+
+/** How a blank niche is spelled in the filter list, on both sides of the join. */
+const NICHE_NONE = "(none)"
+const nicheKey = (niche: string) => niche.trim() || NICHE_NONE
+
+/** Handles that exist in `channels`, i.e. the ones the database can speak for. */
+async function readNeonHandleKeys(): Promise<Set<string>> {
+  const rows = (await sql()`SELECT handle FROM channels`) as Record<string, unknown>[]
+  return new Set(rows.map((r) => handleKey(str(r.handle))))
+}
+
+/**
+ * Roster channels the database has never seen, narrowed by the same filters
+ * as everything else.
+ *
+ * Deliberately excluded once a custom date range is set: these rows carry no
+ * snapshot date, so including them in a range-limited export would put rows in
+ * the file that the range says are not there. All-time exports get them.
+ */
+async function readRosterOnly(
+  filters: SnapshotExportFilters
+): Promise<{ entries: RosterEntry[]; error: string | null }> {
+  if (filters.from || filters.to) return { entries: [], error: null }
+
+  const { rows, error } = await tryReadRoster()
+  if (rows.length === 0) return { entries: [], error }
+
+  const known = await readNeonHandleKeys()
+  const wanted =
+    filters.niches && filters.niches.length > 0 ? new Set(filters.niches) : null
+
+  const entries = rows.filter((r) => {
+    if (known.has(handleKey(r.handle))) return false
+    if (filters.tracking !== "ALL" && r.tracking !== filters.tracking) return false
+    if (wanted && !wanted.has(nicheKey(r.niche))) return false
+    return true
+  })
+
+  return { entries, error }
+}
 
 /**
  * Both filters are expressed as "NULL means no filter" so the whole thing
@@ -169,25 +217,49 @@ export async function readExportOptions(): Promise<SnapshotExportOptions> {
     FROM channels
   `) as Record<string, unknown>[]
 
+  // Roster channels absent from the database still belong in the pickers —
+  // otherwise a niche that exists only outside Neon (Religion, YouTube when
+  // last measured) has no checkbox, and its channels cannot be exported at
+  // all. Best-effort: a sheet outage degrades to the database's own view.
+  const { rows: roster, error: rosterError } = await tryReadRoster()
+  const known = roster.length > 0 ? await readNeonHandleKeys() : new Set<string>()
+  const rosterOnly = roster.filter((r) => !known.has(handleKey(r.handle)))
+
+  const nicheCounts = new Map<string, number>()
+  for (const r of niches) nicheCounts.set(str(r.niche), Number(r.channels ?? 0))
+  for (const r of rosterOnly) {
+    const key = nicheKey(r.niche)
+    nicheCounts.set(key, (nicheCounts.get(key) ?? 0) + 1)
+  }
+
   return {
     minDate: bounds?.min_date ? str(bounds.min_date) : null,
     maxDate: bounds?.max_date ? str(bounds.max_date) : null,
-    niches: niches.map((r) => ({
-      niche: str(r.niche),
-      channels: Number(r.channels ?? 0),
-    })),
+    niches: [...nicheCounts.entries()]
+      .map(([niche, channels]) => ({ niche, channels }))
+      .sort((a, b) => b.channels - a.channels || a.niche.localeCompare(b.niche)),
     tracking: {
-      yes: Number(tracking?.yes ?? 0),
-      no: Number(tracking?.no ?? 0),
-      unknown: Number(tracking?.unknown ?? 0),
+      yes: Number(tracking?.yes ?? 0) + rosterOnly.filter((r) => r.tracking === "YES").length,
+      no: Number(tracking?.no ?? 0) + rosterOnly.filter((r) => r.tracking === "NO").length,
+      unknown:
+        Number(tracking?.unknown ?? 0) +
+        rosterOnly.filter((r) => r.tracking !== "YES" && r.tracking !== "NO").length,
+    },
+    roster: {
+      available: rosterError === null,
+      error: rosterError,
+      onlyChannels: rosterOnly.length,
     },
   }
 }
 
 /** How many rows the current filter selection would export. */
-export async function countExportRows(
-  filters: SnapshotExportFilters
-): Promise<{ videoRows: number; channelOnlyRows: number; channels: number }> {
+export async function countExportRows(filters: SnapshotExportFilters): Promise<{
+  videoRows: number
+  channelOnlyRows: number
+  rosterOnlyRows: number
+  channels: number
+}> {
   const { niches, tracking, from, to } = filterParams(filters)
 
   const [row] = (await sql()`
@@ -223,10 +295,14 @@ export async function countExportRows(
       ) AS channel_only_rows
   `) as Record<string, unknown>[]
 
+  const { entries: rosterOnly } = await readRosterOnly(filters)
+
   return {
     videoRows: Number(row?.video_rows ?? 0),
     channelOnlyRows: Number(row?.channel_only_rows ?? 0),
-    channels: Number(row?.channels ?? 0),
+    rosterOnlyRows: rosterOnly.length,
+    // One row per roster-only channel, so they add to the channel total too.
+    channels: Number(row?.channels ?? 0) + rosterOnly.length,
   }
 }
 
@@ -412,8 +488,49 @@ export async function readCombinedSnapshots(
     })
   }
 
-  // Sorted here rather than in SQL: the two reads are separate statements, so
-  // a database ORDER BY on each would still leave the halves unmerged.
+  // Roster channels the database has never collected metrics for. One row
+  // each, no snapshot date, every metric column blank — the classification the
+  // Manual Sheet holds is all there is to say about them.
+  const { entries: rosterOnly } = await readRosterOnly(filters)
+  for (const r of rosterOnly) {
+    out.push({
+      // No snapshot date to key on, and every other Row_Key in the file starts
+      // with one, so a bare handle cannot collide with them.
+      rowKey: handleKey(r.handle),
+      snapshotDate: "",
+      recordType: "ROSTER_ONLY",
+      handle: r.handle,
+      channelId: "",
+      videoId: "",
+      videoUrl: "",
+      videoType: "",
+      title: "",
+      publishedAt: "",
+      durationHms: "",
+      thumbnailUrl: "",
+      views: null,
+      likes: null,
+      comments: null,
+      outlierScore: null,
+      outlierReason: "",
+      outlierAgeTag: "",
+      subscribers: null,
+      totalVideos: null,
+      totalViews: null,
+      country: "",
+      niche: r.niche,
+      category: r.category,
+      format: r.format,
+      producedBy: r.producedBy,
+      nicheGroup: r.nicheGroup,
+      tracking: r.tracking,
+      fetchedAt: "",
+    })
+  }
+
+  // Sorted here rather than in SQL: the reads are separate statements, so a
+  // database ORDER BY on each would still leave the parts unmerged. Roster-only
+  // rows have no date and sort to the top, where they read as a preamble.
   out.sort(
     (a, b) =>
       a.snapshotDate.localeCompare(b.snapshotDate) ||
