@@ -493,6 +493,30 @@ export function Dashboard() {
   }, [filterValues, dateFilter, searchQuery, showNeedsAudit, showUnavailable, showHandleDiff])
 
   /**
+   * Top-bar filters the snapshot export cannot honour.
+   *
+   * The export dialog carries its own Niche and Tracking controls and
+   * pre-fills them from the top bar, so those two are excluded here. Every
+   * other active filter is named so the file's scope is never a surprise —
+   * `Date Added` included, which filters Shared On rather than Snapshot_Date
+   * and so has no equivalent in the export at all.
+   */
+  const exportUnappliedFilters = useMemo(() => {
+    const parts: string[] = []
+    if (filterValues.category) parts.push(`Category = ${filterValues.category}`)
+    if (filterValues.format) parts.push(`Format = ${filterValues.format}`)
+    if (filterValues.producedBy) parts.push(`Produced By = ${filterValues.producedBy}`)
+    if (filterValues.nicheGroup) parts.push(`Niche Group = ${filterValues.nicheGroup}`)
+    if (filterValues.contentType) parts.push(`Type = ${filterValues.contentType}`)
+    if (dateFilter !== "All Time") parts.push(`Date Added = ${dateFilter}`)
+    if (searchQuery.trim()) parts.push(`search "${searchQuery.trim()}"`)
+    if (showNeedsAudit) parts.push("Needs audit")
+    if (showUnavailable) parts.push("Unavailable Handle")
+    if (showHandleDiff) parts.push("Handle Diff")
+    return parts
+  }, [filterValues, dateFilter, searchQuery, showNeedsAudit, showUnavailable, showHandleDiff])
+
+  /**
    * Built client-side from what's already loaded — no server round trip, and
    * it reflects exactly what the human sees, filters and all. Recomputed
    * lazily (only while the panel is open) since it walks the whole roster.
@@ -1778,8 +1802,9 @@ export function Dashboard() {
       <ExportModal
         open={showExportModal}
         onClose={() => setShowExportModal(false)}
-        channels={rankedChannels}
-        rankingByChannelId={rankingByChannelId}
+        prefillNiche={filterValues.niche}
+        prefillTracking={filterValues.tracking}
+        unappliedFilters={exportUnappliedFilters}
       />
 
       <ChatPanel
