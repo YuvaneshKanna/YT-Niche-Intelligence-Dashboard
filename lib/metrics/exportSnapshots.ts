@@ -13,9 +13,13 @@
 // silently drop those, so they are emitted as `CHANNEL_ONLY` rows with the
 // video columns blank. The result is a strict superset of both tabs.
 //
-// Two columns the rest of the app never reads live only here:
-// `Niche_Outlier_Score` and `Baseline_Method` (All_Video_Snapshots cols X, Y),
-// populated on ~74% of snapshot rows.
+// Two departures from a literal copy of the two tabs, both requested:
+//   - `Niche_Outlier_Score` and `Baseline_Method` (All_Video_Snapshots cols
+//     X, Y) are omitted. They exist in the database and were included at
+//     first; they are not wanted in the export.
+//   - `Tracking` is added. It has no column on either tab — it lives in the
+//     Manual Sheet and is mirrored onto `channels.tracking` — but without it
+//     a file exported with Tracking = All cannot be split back apart.
 
 import { sql } from "@/lib/metrics/db"
 import { deriveVideoUrl, secondsToHms } from "@/lib/metrics/neon"
@@ -52,17 +56,16 @@ export interface CombinedSnapshotRow {
   outlierScore: number | null
   outlierReason: string
   outlierAgeTag: string
-  nicheOutlierScore: number | null
-  baselineMethod: string
   subscribers: number | null
-  totalViews: number | null
   totalVideos: number | null
+  totalViews: number | null
   country: string
   niche: string
   category: string
   format: string
   producedBy: string
   nicheGroup: string
+  tracking: string
   fetchedAt: string
 }
 
@@ -94,17 +97,16 @@ export const COMBINED_COLUMNS: {
   { group: "Outlier", label: "Outlier_Score", key: "outlierScore" },
   { group: "Outlier", label: "Outlier_Reason", key: "outlierReason" },
   { group: "Outlier", label: "Outlier_Age_Tag", key: "outlierAgeTag" },
-  { group: "Outlier", label: "Niche_Outlier_Score", key: "nicheOutlierScore" },
-  { group: "Outlier", label: "Baseline_Method", key: "baselineMethod" },
   { group: "Channel Daily", label: "Subscribers", key: "subscribers" },
-  { group: "Channel Daily", label: "Total_Views", key: "totalViews" },
   { group: "Channel Daily", label: "Total_Videos", key: "totalVideos" },
+  { group: "Channel Daily", label: "Total_Views", key: "totalViews" },
   { group: "Channel Daily", label: "Country", key: "country" },
   { group: "Context", label: "Niche", key: "niche" },
   { group: "Context", label: "Category", key: "category" },
   { group: "Context", label: "Format", key: "format" },
   { group: "Context", label: "Produced_By", key: "producedBy" },
   { group: "Context", label: "Niche_Group", key: "nicheGroup" },
+  { group: "Context", label: "Tracking", key: "tracking" },
   { group: "Audit", label: "Fetched_At", key: "fetchedAt" },
 ]
 
@@ -119,6 +121,14 @@ export interface SnapshotExportOptions {
 const str = (v: unknown): string => (v == null ? "" : String(v))
 const numOrNull = (v: unknown): number | null =>
   v == null || v === "" ? null : Number(v)
+
+/**
+ * `channels.tracking` is a nullable boolean; the Manual Sheet it mirrors uses
+ * YES / NO. Null means the channel is in Neon but the enrichment run has not
+ * seen it in the sheet, which is neither YES nor NO — it stays blank rather
+ * than being flattened into NO.
+ */
+const trackingLabel = (v: unknown): string => (v == null ? "" : v ? "YES" : "NO")
 
 /**
  * Both filters are expressed as "NULL means no filter" so the whole thing
@@ -236,7 +246,7 @@ export async function readCombinedSnapshots(
 
   const videoRows = (await sql()`
     WITH filtered_channels AS (
-      SELECT channel_id, handle, niche, category, format, produced_by, niche_group
+      SELECT channel_id, handle, niche, category, format, produced_by, niche_group, tracking
       FROM channels
       WHERE (${niches}::text[] IS NULL OR COALESCE(NULLIF(niche, ''), '(none)') = ANY(${niches}::text[]))
         AND (${tracking}::boolean IS NULL OR tracking = ${tracking}::boolean)
@@ -263,11 +273,9 @@ export async function readCombinedSnapshots(
       s.outlier_score           AS outlier_score,
       s.outlier_reason          AS outlier_reason,
       s.outlier_age_tag         AS outlier_age_tag,
-      s.niche_outlier_score     AS niche_outlier_score,
-      s.baseline_method         AS baseline_method,
       cs.subscribers            AS subscribers,
-      cs.total_views            AS total_views,
       cs.total_videos           AS total_videos,
+      cs.total_views            AS total_views,
       cs.country                AS country,
       -- Sheet4 writes Fetched_At as a bare IST wall-clock string
       -- ("2026-05-25 06:14:33"); rendering the raw timestamptz here would
@@ -277,7 +285,8 @@ export async function readCombinedSnapshots(
       fc.category               AS category,
       fc.format                 AS format,
       fc.produced_by            AS produced_by,
-      fc.niche_group            AS niche_group
+      fc.niche_group            AS niche_group,
+      fc.tracking               AS tracking
     FROM snapshots s
     JOIN videos v ON v.video_id = s.video_id
     JOIN filtered_channels fc ON fc.channel_id = v.channel_id
@@ -292,7 +301,7 @@ export async function readCombinedSnapshots(
   // would drop 40% of Sheet4's rows and stop being a superset of both tabs.
   const channelOnlyRows = (await sql()`
     WITH filtered_channels AS (
-      SELECT channel_id, handle, niche, category, format, produced_by, niche_group
+      SELECT channel_id, handle, niche, category, format, produced_by, niche_group, tracking
       FROM channels
       WHERE (${niches}::text[] IS NULL OR COALESCE(NULLIF(niche, ''), '(none)') = ANY(${niches}::text[]))
         AND (${tracking}::boolean IS NULL OR tracking = ${tracking}::boolean)
@@ -302,15 +311,16 @@ export async function readCombinedSnapshots(
       fc.handle               AS handle,
       fc.channel_id           AS channel_id,
       cs.subscribers          AS subscribers,
-      cs.total_views          AS total_views,
       cs.total_videos         AS total_videos,
+      cs.total_views          AS total_views,
       cs.country              AS country,
       to_char(cs.fetched_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS') AS fetched_at,
       fc.niche                AS niche,
       fc.category             AS category,
       fc.format               AS format,
       fc.produced_by          AS produced_by,
-      fc.niche_group          AS niche_group
+      fc.niche_group          AS niche_group,
+      fc.tracking             AS tracking
     FROM channel_snapshots cs
     JOIN filtered_channels fc ON fc.channel_id = cs.channel_id
     WHERE (${from}::date IS NULL OR cs.snapshot_date >= ${from}::date)
@@ -352,17 +362,16 @@ export async function readCombinedSnapshots(
       // export that quietly transforms a column is no longer a copy of it.
       outlierReason: str(r.outlier_reason),
       outlierAgeTag: str(r.outlier_age_tag),
-      nicheOutlierScore: numOrNull(r.niche_outlier_score),
-      baselineMethod: str(r.baseline_method),
       subscribers: numOrNull(r.subscribers),
-      totalViews: numOrNull(r.total_views),
       totalVideos: numOrNull(r.total_videos),
+      totalViews: numOrNull(r.total_views),
       country: str(r.country),
       niche: str(r.niche),
       category: str(r.category),
       format: str(r.format),
       producedBy: str(r.produced_by),
       nicheGroup: str(r.niche_group),
+      tracking: trackingLabel(r.tracking),
       fetchedAt: str(r.fetched_at),
     })
   }
@@ -389,17 +398,16 @@ export async function readCombinedSnapshots(
       outlierScore: null,
       outlierReason: "",
       outlierAgeTag: "",
-      nicheOutlierScore: null,
-      baselineMethod: "",
       subscribers: numOrNull(r.subscribers),
-      totalViews: numOrNull(r.total_views),
       totalVideos: numOrNull(r.total_videos),
+      totalViews: numOrNull(r.total_views),
       country: str(r.country),
       niche: str(r.niche),
       category: str(r.category),
       format: str(r.format),
       producedBy: str(r.produced_by),
       nicheGroup: str(r.niche_group),
+      tracking: trackingLabel(r.tracking),
       fetchedAt: str(r.fetched_at),
     })
   }
