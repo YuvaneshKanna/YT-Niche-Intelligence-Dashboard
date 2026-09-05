@@ -3,8 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import Link from "next/link"
-import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, Settings as SettingsIcon, Sparkles } from "lucide-react"
-import * as XLSX from "xlsx"
+import { Search, ExternalLink, Youtube, Pencil, Check, X, ChevronDown, Calendar, AlertCircle, GitCompare, Star, Settings as SettingsIcon, Sparkles, Download } from "lucide-react"
 import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
 import { DayPicker } from "react-day-picker"
@@ -23,6 +22,8 @@ import { SettingsModal } from "@/components/settings-modal"
 import { PageNav } from "@/components/page-nav"
 import { ChatPanel } from "@/components/metrics/chat-panel"
 import { buildRosterContext } from "@/lib/chat/roster-context"
+import { ExportModal } from "@/components/export-modal"
+import { downloadXlsx } from "@/lib/xlsxExport"
 
 import {
   type Channel,
@@ -335,11 +336,10 @@ export function Dashboard() {
       "Shared On": c.sharedOn,
     }))
 
-    const worksheet = XLSX.utils.json_to_sheet(data)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Favourites")
-    XLSX.writeFile(workbook, "YT-Niche-Favourites.xlsx")
+    downloadXlsx(data, "YT-Niche-Favourites.xlsx", "Favourites")
   }
+
+  const [showExportModal, setShowExportModal] = useState(false)
 
   const [tempValues, setTempValues] = useState({
     niche: "",
@@ -490,6 +490,30 @@ export function Dashboard() {
     if (showUnavailable) parts.push("unavailable handles only")
     if (showHandleDiff) parts.push("handle-diff only")
     return parts.length ? parts.join(", ") : null
+  }, [filterValues, dateFilter, searchQuery, showNeedsAudit, showUnavailable, showHandleDiff])
+
+  /**
+   * Top-bar filters the snapshot export cannot honour.
+   *
+   * The export dialog carries its own Niche and Tracking controls and
+   * pre-fills them from the top bar, so those two are excluded here. Every
+   * other active filter is named so the file's scope is never a surprise —
+   * `Date Added` included, which filters Shared On rather than Snapshot_Date
+   * and so has no equivalent in the export at all.
+   */
+  const exportUnappliedFilters = useMemo(() => {
+    const parts: string[] = []
+    if (filterValues.category) parts.push(`Category = ${filterValues.category}`)
+    if (filterValues.format) parts.push(`Format = ${filterValues.format}`)
+    if (filterValues.producedBy) parts.push(`Produced By = ${filterValues.producedBy}`)
+    if (filterValues.nicheGroup) parts.push(`Niche Group = ${filterValues.nicheGroup}`)
+    if (filterValues.contentType) parts.push(`Type = ${filterValues.contentType}`)
+    if (dateFilter !== "All Time") parts.push(`Date Added = ${dateFilter}`)
+    if (searchQuery.trim()) parts.push(`search "${searchQuery.trim()}"`)
+    if (showNeedsAudit) parts.push("Needs audit")
+    if (showUnavailable) parts.push("Unavailable Handle")
+    if (showHandleDiff) parts.push("Handle Diff")
+    return parts
   }, [filterValues, dateFilter, searchQuery, showNeedsAudit, showUnavailable, showHandleDiff])
 
   /**
@@ -1452,14 +1476,24 @@ export function Dashboard() {
               )}
             </div>
 
-            <button
-              onClick={() => setShowChat(true)}
-              aria-label="Ask Claude about this roster"
-              className="ml-auto flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              Ask Claude
-            </button>
+            <div className="ml-auto flex flex-shrink-0 items-center gap-2">
+              <button
+                onClick={() => setShowExportModal(true)}
+                aria-label="Export the filtered roster to Excel"
+                className="flex items-center gap-1.5 rounded-lg border border-sidebar-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export
+              </button>
+              <button
+                onClick={() => setShowChat(true)}
+                aria-label="Ask Claude about this roster"
+                className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Ask Claude
+              </button>
+            </div>
 
           </div>
         </div>
@@ -1765,6 +1799,13 @@ export function Dashboard() {
 
       <UserSelectModal onSelect={(user) => setCurrentUser(user)} />
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
+      <ExportModal
+        open={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        prefillNiche={filterValues.niche}
+        prefillTracking={filterValues.tracking}
+        unappliedFilters={exportUnappliedFilters}
+      />
 
       <ChatPanel
         open={showChat}

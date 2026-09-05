@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react"
 import {
   ArrowDown,
   ArrowUp,
+  Download,
   ExternalLink,
   LayoutGrid,
   ShieldCheck,
@@ -11,6 +12,7 @@ import {
   Table2,
 } from "lucide-react"
 import type { VideoRollup, VideoType } from "@/lib/metrics/types"
+import { downloadXlsx } from "@/lib/xlsxExport"
 import { SERIES } from "./views-trend"
 
 type SortKey =
@@ -193,6 +195,35 @@ export function OutlierTable({ videos, videoType }: OutlierTableProps) {
     }
   }
 
+  /** Exports exactly what's on screen — current format, sort, and filter chips. */
+  const exportRows = () => {
+    const data = rows.map((v) => ({
+      Title: v.title,
+      Channel: v.handle,
+      "Video URL": v.videoUrl,
+      "Produced By": v.producedBy,
+      "Video Type": v.videoType === "SHORTS" ? "Shorts" : "Long-Form",
+      "Published At": v.publishedAt,
+      Duration: v.durationHms,
+      "Outlier Reason": v.outlierReason,
+      "Outlier Age Tag": v.outlierAgeTag,
+      "Channel Age (Days)": v.channelAgeDays,
+      "Channel First Video At": v.channelFirstVideoAt,
+      Views: v.views,
+      "Views / Day": v.viewsPerDay,
+      "Views / Day Change %": v.vpdAccelerationPct,
+      Likes: v.likes,
+      Comments: v.comments,
+      "Engagement %": v.engagementRatePct,
+      "Outlier Score": v.outlierScore,
+      "Dominance %": v.dominancePct,
+      "Days Observed": v.daysObserved,
+    }))
+    const date = new Date().toISOString().slice(0, 10)
+    const formatLabel = videoType === "SHORTS" ? "Shorts" : "LongForm"
+    downloadXlsx(data, `YT-Outliers-${formatLabel}-${date}.xlsx`, "Outliers")
+  }
+
   if (baseCount === 0) {
     return (
       <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border">
@@ -248,7 +279,18 @@ export function OutlierTable({ videos, videoType }: OutlierTableProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportRows}
+            disabled={rows.length === 0}
+            aria-label="Export outliers to Excel"
+            title="Export the rows currently on screen"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export
+          </button>
+          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
           <button
             onClick={() => setView("cards")}
             aria-label="Card view"
@@ -273,6 +315,7 @@ export function OutlierTable({ videos, videoType }: OutlierTableProps) {
           >
             <Table2 className="h-3.5 w-3.5" />
           </button>
+          </div>
         </div>
       </div>
 
