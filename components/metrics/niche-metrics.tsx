@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -10,6 +11,7 @@ import {
   RefreshCw,
   Settings,
   Sparkles,
+  Telescope,
   Youtube,
 } from "lucide-react"
 import type {
@@ -425,6 +427,16 @@ export function NicheMetrics() {
                           setSelectedChannel(null)
                         }}
                       />
+                      {/* Hand-off to the drill-down page. This page decides WHICH
+                          niche is worth a look; that one answers what to make in it. */}
+                      <Link
+                        href={`/niche?group=${encodeURIComponent(group.nicheGroup)}&range=${range}`}
+                        className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+                        title={`Open ${group.nicheGroup} on the Niche Performance page`}
+                      >
+                        <Telescope className="h-3 w-3" />
+                        Deep dive into {group.nicheGroup}
+                      </Link>
                       {chartScope === "groups" && groupsOmitted > 0 && (
                         <p className="mt-0.5 text-[10px] text-muted-foreground">
                           +{groupsOmitted} more not shown, sorted by views gained

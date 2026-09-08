@@ -482,3 +482,109 @@ export async function readNexlevRpm(): Promise<NexlevRpm> {
 
   return { byChannelId, byNiche }
 }
+
+/**
+ * Everything `channel_nexlev` knows about one channel, unaggregated.
+ *
+ * `readNexlevRpm` above collapses this table to a single effective RPM per
+ * channel because that is all the opportunity score needs. The niche
+ * drill-down page needs the parts that collapse throws away — the long/short
+ * RPM split, the revenue figures, and the audience JSONB — so this reader
+ * returns the row as-is and lets the caller decide.
+ *
+ * Every numeric field is nullable on purpose: NexLev returns partial rows for
+ * channels it has thin data on, and a missing RPM must stay missing rather
+ * than read as $0.
+ */
+export interface NexlevChannelDetail {
+  channelId: string
+  handle: string
+  nicheGroup: string
+  channelType: string | null
+  categoryRpm: number | null
+  longRpm: number | null
+  shortRpm: number | null
+  monthRevenue: number | null
+  monthLongRevenue: number | null
+  monthShortRevenue: number | null
+  longViewCount: number | null
+  shortViewCount: number | null
+  weightedAvgDuration: number | null
+  /** NexLev's gender split, shape as returned. Null when not enriched. */
+  gender: unknown
+  /** NexLev's age-band split, shape as returned. Null when not enriched. */
+  age: unknown
+  /** NexLev's per-country viewership split, shape as returned. */
+  viewershipCountry: unknown
+  fetchedAt: string | null
+}
+
+const nullableNum = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === "") return null
+  const n = typeof v === "number" ? v : parseFloat(String(v))
+  return Number.isFinite(n) ? n : null
+}
+
+const nullableStr = (v: unknown): string | null => {
+  const s = str(v)
+  return s === "" ? null : s
+}
+
+/**
+ * NexLev enrichment for every channel in one niche group.
+ *
+ * A channel whose `niche_group` is blank belongs to the "Overall" bucket —
+ * the same fold `lib/metrics/aggregate.ts` applies via `UNGROUPED`, repeated
+ * here in SQL so the two agree on which channels a group contains.
+ *
+ * Returns only channels that have a `channel_nexlev` row; the caller knows
+ * the group's full channel list from the metrics payload and can report
+ * coverage by comparing the two.
+ */
+export async function readNexlevChannels(nicheGroup: string): Promise<NexlevChannelDetail[]> {
+  const rows = (await sql()`
+    SELECT
+      n.channel_id            AS channel_id,
+      c.handle                AS handle,
+      COALESCE(NULLIF(btrim(c.niche_group), ''), 'Overall') AS niche_group,
+      n.channel_type          AS channel_type,
+      n.category_rpm::float8  AS category_rpm,
+      n.long_rpm::float8      AS long_rpm,
+      n.short_rpm::float8     AS short_rpm,
+      n.month_revenue::float8 AS month_revenue,
+      n.month_long_revenue::float8  AS month_long_revenue,
+      n.month_short_revenue::float8 AS month_short_revenue,
+      n.long_view_count       AS long_view_count,
+      n.short_view_count      AS short_view_count,
+      n.weighted_avg_duration AS weighted_avg_duration,
+      n.gender                AS gender,
+      n.age                   AS age,
+      n.viewership_country    AS viewership_country,
+      n.fetched_at            AS fetched_at
+    FROM channel_nexlev n
+    JOIN channels c ON c.channel_id = n.channel_id
+    WHERE COALESCE(NULLIF(btrim(c.niche_group), ''), 'Overall') = ${nicheGroup}
+      AND n.fetched_at IS NOT NULL
+    ORDER BY c.handle
+  `) as Record<string, unknown>[]
+
+  return rows.map((r) => ({
+    channelId: str(r.channel_id),
+    handle: str(r.handle),
+    nicheGroup: str(r.niche_group),
+    channelType: nullableStr(r.channel_type),
+    categoryRpm: nullableNum(r.category_rpm),
+    longRpm: nullableNum(r.long_rpm),
+    shortRpm: nullableNum(r.short_rpm),
+    monthRevenue: nullableNum(r.month_revenue),
+    monthLongRevenue: nullableNum(r.month_long_revenue),
+    monthShortRevenue: nullableNum(r.month_short_revenue),
+    longViewCount: nullableNum(r.long_view_count),
+    shortViewCount: nullableNum(r.short_view_count),
+    weightedAvgDuration: nullableNum(r.weighted_avg_duration),
+    gender: r.gender ?? null,
+    age: r.age ?? null,
+    viewershipCountry: r.viewership_country ?? null,
+    fetchedAt: r.fetched_at ? String(r.fetched_at) : null,
+  }))
+}
