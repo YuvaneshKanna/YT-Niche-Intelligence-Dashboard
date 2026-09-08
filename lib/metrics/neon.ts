@@ -403,3 +403,82 @@ export async function diagnose(sinceDate: string): Promise<NeonDiagnostics[]> {
     },
   ]
 }
+
+/**
+ * Per-channel RPM from the Stage 3 NexLev enrichment tables, and a per-niche
+ * median as a fallback for niche groups no enriched channel belongs to yet.
+ *
+ * Which column is "the" RPM depends on what the channel actually publishes,
+ * because NexLev measures the two formats separately and they are an order of
+ * magnitude apart:
+ *
+ *  - `SHORTS_ONLY` → `short_rpm`. Shorts RPM is genuinely ~$0.04, not a
+ *    scaling bug; a Shorts-only channel scored on its long-form RPM would be
+ *    credited with revenue it cannot earn.
+ *  - everything else (`MIXED`, `LONG_ONLY`, and rows with no `channel_type`)
+ *    → `long_rpm`.
+ *  - `batch_rpm` as the fallback, which is what the ~150-channel tail has:
+ *    the weekly `get_batch_channel_metrics_v2` layer covers the whole roster
+ *    and writes only `batch_rpm`, while the nightly geography layer that
+ *    writes `long_rpm`/`short_rpm` is capped at 20 channels a day.
+ *
+ * `batch_rpm` is a NexLev model prediction and `long_rpm` a measurement, so
+ * they are deliberately not merged in the schema (see .agents/schema.sql) —
+ * this is a read-time preference order, measured first, predicted second.
+ *
+ * Neon-only: the Sheets path has no enrichment tables and leaves both maps
+ * undefined, which puts the opportunity score back on the niche-profile
+ * estimate exactly as before.
+ */
+export interface NexlevRpm {
+  /** Effective RPM per `channel_id`. */
+  byChannelId: Map<string, number>
+  /** Median effective RPM per lowercase `channels.niche`. */
+  byNiche: Map<string, number>
+}
+
+export async function readNexlevRpm(): Promise<NexlevRpm> {
+  const rows = (await sql()`
+    SELECT
+      n.channel_id                 AS channel_id,
+      lower(COALESCE(c.niche, '')) AS niche,
+      COALESCE(
+        CASE WHEN n.channel_type = 'SHORTS_ONLY' THEN n.short_rpm ELSE n.long_rpm END,
+        n.batch_rpm
+      )::float8                    AS rpm
+    FROM channel_nexlev n
+    JOIN channels c ON c.channel_id = n.channel_id
+    WHERE COALESCE(
+      CASE WHEN n.channel_type = 'SHORTS_ONLY' THEN n.short_rpm ELSE n.long_rpm END,
+      n.batch_rpm
+    ) IS NOT NULL
+  `) as Record<string, unknown>[]
+
+  const byChannelId = new Map<string, number>()
+  const perNiche = new Map<string, number[]>()
+
+  for (const r of rows) {
+    const channelId = str(r.channel_id)
+    if (!channelId) continue
+    const rpm = num(r.rpm)
+    byChannelId.set(channelId, rpm)
+
+    const niche = str(r.niche)
+    if (!niche) continue
+    const bucket = perNiche.get(niche)
+    if (bucket) bucket.push(rpm)
+    else perNiche.set(niche, [rpm])
+  }
+
+  const byNiche = new Map<string, number>()
+  for (const [niche, values] of perNiche) {
+    values.sort((a, b) => a - b)
+    const mid = Math.floor(values.length / 2)
+    byNiche.set(
+      niche,
+      values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid]
+    )
+  }
+
+  return { byChannelId, byNiche }
+}

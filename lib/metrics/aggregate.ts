@@ -293,6 +293,17 @@ function daysSince(date: string | null, todayMs: number): number | null {
 }
 
 /** Median of a numeric list, rounded. Null for an empty list. */
+/**
+ * Median that keeps the fractional part `median()` rounds away. Used for
+ * money — an RPM of $1.72 must not become $2.
+ */
+function medianMoney(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
 function median(values: number[]): number | null {
   if (values.length === 0) return null
   const sorted = [...values].sort((a, b) => a - b)
@@ -433,17 +444,24 @@ function buildMomentum(
   }
 }
 
+/** A niche group's NexLev RPM, and how many of its channels it was taken over. */
+interface NexlevGroupRpm {
+  rpm: number
+  /** Enriched channels in the group. 0 means the per-niche fallback was used. */
+  channelCount: number
+}
+
 function buildOpportunity(
   niche: string,
   hhi: number,
-  nexlevRpm: number | null,
+  nexlev: NexlevGroupRpm | null,
   confidence: Confidence,
   confidenceReason: string
 ): CompositeScore {
   const { profile, matched } = profileForNiche(niche)
 
-  const rpm = nexlevRpm ?? profile.rpmUsd
-  const rpmSource: ScoreComponent["source"] = nexlevRpm !== null ? "nexlev" : "estimate"
+  const rpm = nexlev?.rpm ?? profile.rpmUsd
+  const rpmSource: ScoreComponent["source"] = nexlev ? "nexlev" : "estimate"
 
   const aiRiskScore = profile.aiRisk === "low" ? 90 : profile.aiRisk === "medium" ? 55 : 20
 
@@ -454,10 +472,14 @@ function buildOpportunity(
       score: linScore(rpm, 20),
       displayValue: `$${round(rpm, 2)}`,
       source: rpmSource,
-      note:
-        rpmSource === "nexlev"
-          ? "Category RPM from NexLev."
-          : "Estimated niche RPM — edit in lib/metrics/niche-profiles.ts.",
+      note: nexlev
+        ? nexlev.channelCount > 0
+          ? `Median NexLev RPM across ${nexlev.channelCount} enriched channel` +
+            `${nexlev.channelCount === 1 ? "" : "s"} in this group — Shorts-only ` +
+            `channels measured on Shorts RPM, the rest on long-form.`
+          : `Median NexLev RPM across the "${niche}" niche — no channel in this ` +
+            `group is enriched yet.`
+        : "Estimated niche RPM — edit in lib/metrics/niche-profiles.ts.",
     },
     {
       key: "audience",
@@ -539,7 +561,17 @@ export interface AggregateInput {
   channelSnapshots: ChannelSnapshot[]
   videoSnapshots: VideoSnapshot[]
   requestedDays: number
-  /** Optional NexLev RPM per niche, keyed lowercase. */
+  /**
+   * Optional NexLev RPM per `channel_id`, from `readNexlevRpm`. A group's
+   * opportunity RPM is the median across its own enriched channels, so a
+   * Shorts-only group is scored on Shorts RPM even when it shares a niche
+   * with long-form channels.
+   */
+  nexlevRpmByChannelId?: Map<string, number>
+  /**
+   * Optional median NexLev RPM per niche, keyed lowercase. Fallback only —
+   * used for a group none of whose channels are enriched yet.
+   */
   nexlevRpmByNiche?: Map<string, number>
   /**
    * Optional oldest-tracked-upload date per `channel_id`, from
@@ -560,8 +592,14 @@ export interface AggregateResult {
 }
 
 export function aggregate(input: AggregateInput): AggregateResult {
-  const { channelSnapshots, videoSnapshots, requestedDays, nexlevRpmByNiche, firstVideoByChannelId } =
-    input
+  const {
+    channelSnapshots,
+    videoSnapshots,
+    requestedDays,
+    nexlevRpmByChannelId,
+    nexlevRpmByNiche,
+    firstVideoByChannelId,
+  } = input
   const warnings: string[] = []
 
   // One clock reading for the whole aggregation, so every age in the payload
@@ -754,7 +792,19 @@ export function aggregate(input: AggregateInput): AggregateResult {
       groupChannels.length
     )
 
-    const nexlevRpm = nexlevRpmByNiche?.get(primaryNiche.toLowerCase()) ?? null
+    // A group's RPM comes from its own enriched channels first; the niche
+    // median only covers a group nothing in which has been enriched yet.
+    const groupRpms = groupChannels
+      .map((c) => nexlevRpmByChannelId?.get(c.channelId))
+      .filter((r): r is number => r !== undefined)
+    const groupMedianRpm = medianMoney(groupRpms)
+    const nicheRpm = nexlevRpmByNiche?.get(primaryNiche.toLowerCase())
+    const nexlevRpm: NexlevGroupRpm | null =
+      groupMedianRpm !== null
+        ? { rpm: groupMedianRpm, channelCount: groupRpms.length }
+        : nicheRpm !== undefined
+          ? { rpm: nicheRpm, channelCount: 0 }
+          : null
 
     groups.push({
       nicheGroup: name,

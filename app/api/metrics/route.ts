@@ -10,6 +10,7 @@ import {
 import {
   diagnose as diagnoseNeon,
   readChannelFirstVideoDates,
+  readNexlevRpm,
   readChannelSnapshots as readChannelNeon,
   readVideoSnapshots as readVideoNeon,
 } from "@/lib/metrics/neon"
@@ -128,12 +129,18 @@ export async function GET(request: NextRequest) {
     // The channel-age proxy is a Neon-only read: it looks at the whole
     // `videos` table, outside the snapshot window, and the Sheets path has no
     // equivalent. On Sheets it stays undefined and every age field is null.
-    const [channelSnapshots, videoSnapshots, firstVideoByChannelId] = await Promise.all([
+    // Stage 3 NexLev RPM is Neon-only too — it lives in `channel_nexlev`,
+    // which the Sheets path has no equivalent of. Without it the opportunity
+    // score falls back to the niche-profile estimate, as it did before.
+    const [channelSnapshots, videoSnapshots, firstVideoByChannelId, nexlevRpm] = await Promise.all([
       readChannelSnapshots(since),
       readVideoSnapshots(since),
       SOURCE === "neon"
         ? readChannelFirstVideoDates()
         : Promise.resolve(undefined as Map<string, string> | undefined),
+      SOURCE === "neon"
+        ? readNexlevRpm()
+        : Promise.resolve(undefined as Awaited<ReturnType<typeof readNexlevRpm>> | undefined),
     ])
 
     const result = aggregate({
@@ -141,6 +148,8 @@ export async function GET(request: NextRequest) {
       videoSnapshots,
       requestedDays: days,
       firstVideoByChannelId,
+      nexlevRpmByChannelId: nexlevRpm?.byChannelId,
+      nexlevRpmByNiche: nexlevRpm?.byNiche,
     })
 
     // An empty result is the hardest failure to diagnose from the UI. When
