@@ -8,14 +8,8 @@ import { formatCount } from "@/lib/niche/recommend"
 export function verdictSentence(group: NicheGroupSummary): string {
   const pace =
     group.momentum.score >= 70 ? "Moving fast" : group.momentum.score >= 45 ? "Steady" : "Slow-moving"
-  const room =
-    group.opportunity.score >= 70
-      ? "high opportunity"
-      : group.opportunity.score >= 45
-        ? "moderate opportunity"
-        : "thin opportunity"
-  const field = group.concentrationHhi >= 2500 ? "concentrated field" : "fragmented field"
-  return `${pace}, ${room}, ${field}.`
+  const field = group.concentrationHhi >= 2500 ? "a few channels lead the views" : "views are spread across channels"
+  return `${pace}; ${field}.`
 }
 
 const rpmOf = (group: NicheGroupSummary): ScoreComponent | null =>
@@ -130,9 +124,12 @@ export function Headline({
           note={rpm?.note}
           tone={rpm?.source === "estimate" ? "muted" : "default"}
         />
+        <details className="text-sm text-muted-foreground">
+          <summary className="cursor-pointer rounded py-2">Compare niche scores</summary>
+          <div className="mt-3 flex flex-wrap items-end gap-5">
         <Figure
-          value={String(group.concentrationHhi)}
-          label="Concentration"
+          value={group.concentrationHhi >= 2500 ? "Few leaders" : "Spread out"}
+          label="Who gets the views"
           note="Herfindahl-Hirschman Index of channel view share, 0-10000. Above 2500 a few channels take most of the views in this niche."
         />
         <Meter
@@ -145,6 +142,8 @@ export function Headline({
           score={group.opportunity.score}
           reason={`Room to win against the wider ${group.primaryNiche} niche. ${group.opportunity.confidenceReason}`}
         />
+          </div>
+        </details>
       </div>
     </div>
   )

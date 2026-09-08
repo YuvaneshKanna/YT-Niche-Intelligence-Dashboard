@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import "./niche.css"
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { AlertTriangle, ChevronRight, RefreshCw, Sparkles } from "lucide-react"
 import type {
@@ -26,6 +28,7 @@ import {
   SERIES,
 } from "@/components/metrics/views-trend"
 import { Headline } from "./headline"
+import { OpportunityWorkbench } from "./opportunity-workbench"
 import { NextMoves } from "./next-moves"
 import { PeerRanks } from "./peer-ranks"
 import { ChannelLeaderboard } from "./channel-leaderboard"
@@ -78,23 +81,37 @@ export function NichePerformance() {
   const [formatTouched, setFormatTouched] = useState(false)
 
   const [data, setData] = useState<MetricsPayload | null>(null)
-  const [nexlev, setNexlev] = useState<NexlevChannelDetail[]>([])
-  const [ideation, setIdeation] = useState<IdeationPayload | null>(null)
+  const [rawNexlev, setNexlev] = useState<NexlevChannelDetail[]>([])
+  const [rawIdeation, setIdeation] = useState<IdeationPayload | null>(null)
   const [ideationLoading, setIdeationLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ message: string; code?: string } | null>(null)
   const [showWarnings, setShowWarnings] = useState(false)
   const [showChat, setShowChat] = useState(false)
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set())
+  const metricsRequest = useRef(0)
+  const [refreshVersion, setRefreshVersion] = useState(0)
+
+  const [nexlevGroup, setNexlevGroup] = useState<string | null>(null)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const [openEvidence, setOpenEvidence] = useState<Record<string, boolean>>({})
+  const [patternsOpen, setPatternsOpen] = useState(false)
+  const [inspectSimilarity, setInspectSimilarity] = useState(false)
+  const [pendingEvidence, setPendingEvidence] = useState<EvidenceAnchor | null>(null)
+  const ideation = rawIdeation?.coverage.nicheGroup === selectedGroup && rawIdeation.coverage.videoType === videoType ? rawIdeation : null
+  const nexlev = useMemo(() => nexlevGroup === selectedGroup ? rawNexlev : [], [nexlevGroup, selectedGroup, rawNexlev])
 
   // ── Data ───────────────────────────────────────────────────────────────
 
   const loadMetrics = useCallback((r: RangeKey, refresh = false) => {
+    const request = ++metricsRequest.current
     setLoading(true)
     setError(null)
     fetch(`/api/metrics?range=${r}${refresh ? "&refresh=1" : ""}`)
       .then((res) => res.json())
       .then((json) => {
+        if (request !== metricsRequest.current) return
         if (!json.success) {
           setError({ message: json.error || "Failed to load metrics", code: json.code })
           setData(null)
@@ -102,14 +119,15 @@ export function NichePerformance() {
         }
         setData(json.data as MetricsPayload)
       })
-      .catch((err: unknown) =>
-        setError({ message: err instanceof Error ? err.message : "Network error" })
-      )
-      .finally(() => setLoading(false))
+      .catch((err: unknown) => {
+        if (request === metricsRequest.current) setError({ message: err instanceof Error ? err.message : "Network error" })
+      })
+      .finally(() => { if (request === metricsRequest.current) setLoading(false) })
   }, [])
 
   useEffect(() => {
     loadMetrics(range)
+    return () => { metricsRequest.current++ }
   }, [range, loadMetrics])
 
   // Both supplementary reads fail soft: the page stays usable on measured view
@@ -118,39 +136,44 @@ export function NichePerformance() {
     if (!selectedGroup) return
     let cancelled = false
     setNexlev([])
-    fetch(`/api/niche-detail?group=${encodeURIComponent(selectedGroup)}`)
+    setDetailError(null)
+    fetch(`/api/niche-detail?group=${encodeURIComponent(selectedGroup)}${refreshVersion ? "&refresh=1" : ""}`)
       .then((res) => res.json())
       .then((json) => {
-        if (cancelled || !json.success) return
+        if (cancelled) return
+        if (!json.success) { setDetailError(json.error || "Channel enrichment unavailable"); return }
+        setNexlevGroup(selectedGroup)
         setNexlev((json.channels ?? []) as NexlevChannelDetail[])
       })
-      .catch(() => undefined)
+      .catch(() => { if (!cancelled) setDetailError("Channel enrichment unavailable. Refresh to retry.") })
     return () => {
       cancelled = true
     }
-  }, [selectedGroup])
+  }, [selectedGroup, refreshVersion])
 
   useEffect(() => {
     if (!selectedGroup) return
     let cancelled = false
     setIdeation(null)
+    setAnalysisError(null)
     setIdeationLoading(true)
     fetch(
-      `/api/niche-ideation?group=${encodeURIComponent(selectedGroup)}&format=${videoType}`
+      `/api/niche-ideation?group=${encodeURIComponent(selectedGroup)}&format=${videoType}${refreshVersion ? "&refresh=1" : ""}`
     )
       .then((res) => res.json())
       .then((json) => {
         if (cancelled) return
         if (json.success) setIdeation(json.data as IdeationPayload)
+        else setAnalysisError(json.error || "Title analysis unavailable. Refresh to retry.")
       })
-      .catch(() => undefined)
+      .catch(() => { if (!cancelled) setAnalysisError("Title analysis unavailable. Refresh to retry.") })
       .finally(() => {
         if (!cancelled) setIdeationLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [selectedGroup, videoType])
+  }, [selectedGroup, videoType, refreshVersion])
 
   // ── Selection ──────────────────────────────────────────────────────────
 
@@ -162,7 +185,7 @@ export function NichePerformance() {
   // Default to the biggest *named* group. "Overall" is the ungrouped remainder
   // of the roster; drilling into it answers nothing about a niche.
   useEffect(() => {
-    if (selectedGroup || groups.length === 0) return
+    if (groups.length === 0 || groups.some(g => g.nicheGroup === selectedGroup)) return
     const named = groups.filter((g) => g.nicheGroup !== "Overall")
     setSelectedGroup((named[0] ?? groups[0]).nicheGroup)
   }, [groups, selectedGroup])
@@ -204,7 +227,7 @@ export function NichePerformance() {
   }, [ideation, formatTouched])
 
   useEffect(() => {
-    setFormatTouched(false)
+    setOpenEvidence({})
   }, [selectedGroup])
 
   // ── Derived ────────────────────────────────────────────────────────────
@@ -238,8 +261,29 @@ export function NichePerformance() {
   useEffect(() => setHiddenKeys(new Set()), [selectedGroup, range])
 
   const showEvidence = useCallback((anchor: EvidenceAnchor) => {
-    document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    setOpenEvidence(prev => ({ ...prev, [anchor === "trend" || anchor === "peers" ? "performance" : anchor]: true }))
+    setPendingEvidence(anchor)
   }, [])
+
+  useEffect(() => {
+    if (!pendingEvidence) return
+    const target = document.getElementById(pendingEvidence)
+    if (target) {
+      target.tabIndex = -1
+      target.focus({ preventScroll: true })
+      target.scrollIntoView({ block: "start" })
+      setPendingEvidence(null)
+    }
+  }, [pendingEvidence, openEvidence])
+
+  useEffect(() => {
+    if (inspectSimilarity && patternsOpen && !ideationLoading) {
+      const target = document.getElementById("channel-similarity") ?? document.getElementById("pattern-evidence")
+      target?.scrollIntoView({ block: "start" })
+      if (target) { target.tabIndex = -1; target.focus({ preventScroll: true }) }
+      setInspectSimilarity(false)
+    }
+  }, [inspectSimilarity, patternsOpen, ideationLoading, ideation])
 
   const toggleSeries = useCallback((key: string) => {
     setHiddenKeys((prev) => {
@@ -272,13 +316,13 @@ export function NichePerformance() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="niche-page flex h-dvh flex-col bg-background">
       {/* One toolbar row. The previous header spent a full-width band on the
           niche name and pushed every control onto a second line. */}
-      <header className="sticky top-0 z-30 flex h-12 flex-shrink-0 items-center gap-3 border-b border-border bg-background/90 px-4 backdrop-blur">
+      <header className="sticky top-0 z-30 flex flex-shrink-0 flex-wrap items-center gap-3 border-b border-border bg-background/90 px-4 py-3 backdrop-blur">
         <PageNav />
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
             {(["LONG_FORM", "SHORTS"] as VideoType[]).map((t) => (
               <button
@@ -321,8 +365,8 @@ export function NichePerformance() {
           </div>
 
           <button
-            onClick={() => loadMetrics(range, true)}
-            aria-label="Refresh metrics"
+            onClick={() => { loadMetrics(range, true); setRefreshVersion(v => v + 1) }}
+            aria-label="Refresh all research data"
             title="Re-read the source, bypassing the cache"
             className="cursor-pointer rounded-lg border border-border p-1.5 text-muted-foreground transition-[transform,color,border-color] duration-150 ease-out hover:border-primary/50 hover:text-foreground active:scale-[0.96]"
           >
@@ -371,10 +415,10 @@ export function NichePerformance() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 px-4 py-4">
-          {loading && !data ? (
+        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-7 px-4 py-7 sm:px-7 lg:px-10">
+          {loading || data?.range !== range ? (
             <div className="flex h-64 items-center justify-center">
-              <p className="text-[13px] text-muted-foreground">Loading niche metrics…</p>
+              <p role="status" className="text-[13px] text-muted-foreground">Loading niche metrics…</p>
             </div>
           ) : !group ? (
             <div className="flex h-64 items-center justify-center">
@@ -385,6 +429,7 @@ export function NichePerformance() {
           ) : (
             <>
               <Headline group={group} rank={groupRank} outOf={groups.length} />
+              <p className="-mt-4 text-xs text-muted-foreground">Headline totals include all formats. The research desk and title analysis use your selected format.</p>
 
               {data && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
@@ -420,10 +465,24 @@ export function NichePerformance() {
                 </ul>
               )}
 
+              <OpportunityWorkbench
+                key={`${group.nicheGroup}:${videoType}:${range}`}
+                videos={videos}
+                onInspectEvidence={() => { setPatternsOpen(true); setInspectSimilarity(true) }}
+                analysisLoading={ideationLoading}
+                analysisError={analysisError}
+                videoType={videoType}
+                ideation={ideation}
+                group={group.nicheGroup}
+                range={RANGE_LABEL[range]}
+                coverage={`${data?.coverageStart ?? "unknown"} to ${data?.coverageEnd ?? "unknown"}`}
+              />
+
               {/* ── The ideation layer: what this page exists for ── */}
-              <div className="flex flex-col gap-2">
+              <div id="pattern-evidence" className="flex scroll-mt-24 flex-col gap-3">
+                <Disclosure label="Inspect pattern evidence" hint="Title framings, topic history, channel similarities and repeat subjects" open={patternsOpen} onOpenChange={setPatternsOpen}>
                 <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <Eyebrow>How this niche ideates</Eyebrow>
+                  <Eyebrow>Pattern evidence · full tracked title history</Eyebrow>
                   {ideation && !ideation.emptyReason && (
                     <IdeationCoverageLine payload={ideation} />
                   )}
@@ -437,7 +496,7 @@ export function NichePerformance() {
                   <Panel>
                     <EmptyPanel>
                       {ideation?.emptyReason ??
-                        "The ideation analysis is unavailable for this niche."}
+                        analysisError ?? "The ideation analysis is unavailable for this niche."}
                     </EmptyPanel>
                   </Panel>
                 ) : (
@@ -460,9 +519,11 @@ export function NichePerformance() {
                     </div>
                   </>
                 )}
+                </Disclosure>
               </div>
 
               <AnglesPanel
+                key={`${group.nicheGroup}:${videoType}`}
                 group={group.nicheGroup}
                 videoType={videoType}
                 disabled={!ideation || Boolean(ideation.emptyReason)}
@@ -470,7 +531,7 @@ export function NichePerformance() {
 
               {/* ── The action layer ── */}
               <div className="flex flex-col gap-2">
-                <Eyebrow>What the numbers say to do</Eyebrow>
+                <Eyebrow>Next steps from the performance evidence · all formats</Eyebrow>
                 <NextMoves
                   moves={recommendation.moves}
                   emptyReason={recommendation.emptyReason}
@@ -480,6 +541,8 @@ export function NichePerformance() {
 
               {/* ── Performance context, one disclosure down ── */}
               <Disclosure
+                open={openEvidence.performance ?? false}
+                onOpenChange={open => setOpenEvidence(prev => ({ ...prev, performance: open }))}
                 label="Performance context"
                 hint={`rank vs ${groups.length - 1} other niches, and who is driving this one`}
               >
@@ -511,9 +574,12 @@ export function NichePerformance() {
               </Disclosure>
 
               <Disclosure
+                open={openEvidence.channels ?? false}
+                onOpenChange={open => setOpenEvidence(prev => ({ ...prev, channels: open }))}
                 label="Channels"
                 hint={`${channels.length} in this niche, with measured RPM where NexLev has it`}
               >
+                {detailError && <p role="status" className="mb-3 text-sm text-muted-foreground">{detailError}</p>}
                 <ChannelLeaderboard
                   channels={channels}
                   nexlevByChannelId={nexlevByChannelId}
@@ -522,6 +588,8 @@ export function NichePerformance() {
               </Disclosure>
 
               <Disclosure
+                open={openEvidence.outliers ?? false}
+                onOpenChange={open => setOpenEvidence(prev => ({ ...prev, outliers: open }))}
                 label="Outlier videos"
                 hint={`tracked ${videoType === "SHORTS" ? "Shorts" : "long-form"} in the last ${RANGE_LABEL[range]}`}
               >

@@ -73,7 +73,7 @@ export function PercentileChip({ value, size = "sm" }: { value: number; size?: "
   const above = value >= 58
   const below = value <= 42
   const tone = above
-    ? "bg-primary/15 text-primary-foreground/90 ring-primary/40"
+    ? "bg-primary/15 text-primary ring-primary/40"
     : below
       ? "bg-slate-500/15 text-slate-300 ring-slate-500/30"
       : "bg-muted text-muted-foreground ring-border"
@@ -141,19 +141,24 @@ export function Disclosure({
   hint,
   children,
   defaultOpen = false,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   label: string
   hint?: string
   children: ReactNode
   defaultOpen?: boolean
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  const [internalOpen, setOpen] = useState(defaultOpen)
+  const open = controlledOpen ?? internalOpen
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-2">
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => { setOpen(!open); onOpenChange?.(!open) }}
         aria-expanded={open}
-        className="group flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-muted/40"
+        className="group flex min-h-11 w-fit max-w-full cursor-pointer flex-wrap items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-muted/40"
       >
         <ChevronDown
           className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${
@@ -165,7 +170,7 @@ export function Disclosure({
         </span>
         {hint && <span className="text-[11px] text-muted-foreground/70">{hint}</span>}
       </button>
-      {open && <div className="animate-in fade-in slide-in-from-top-1 duration-200">{children}</div>}
+      {open && <div className="min-w-0">{children}</div>}
     </div>
   )
 }

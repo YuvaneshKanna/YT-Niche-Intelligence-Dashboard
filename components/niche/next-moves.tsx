@@ -37,7 +37,7 @@ function MoveCard({
   onShowEvidence: (anchor: EvidenceAnchor) => void
 }) {
   return (
-    <li className="group flex gap-3 rounded-lg border border-border bg-background/40 p-3 transition-colors hover:border-primary/40">
+    <li className="group flex gap-3 rounded-lg bg-background/40 p-3 transition-colors hover:border-primary/40">
       <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md bg-muted text-[11px] font-semibold tabular-nums text-muted-foreground">
         {rank}
       </span>
@@ -52,11 +52,11 @@ function MoveCard({
 
         <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{move.detail}</p>
 
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <ConfidenceChip confidence={move.confidence} reason={move.confidenceReason} />
           <button
             onClick={() => onShowEvidence(move.anchor)}
-            className="inline-flex items-center gap-1 text-[10px] text-primary opacity-0 transition-opacity hover:underline focus-visible:opacity-100 group-hover:opacity-100"
+            className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
           >
             Show the evidence
             <ArrowRight className="h-3 w-3" />

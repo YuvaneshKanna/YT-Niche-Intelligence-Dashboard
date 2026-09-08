@@ -99,7 +99,7 @@ export function AnglesPanel({
         hint={
           generatedAt
             ? `generated ${new Date(generatedAt).toLocaleString()}`
-            : "reads the analysis above and proposes what is missing"
+            : "AI proposals · generated only when you ask"
         }
         right={
           <button
@@ -128,7 +128,7 @@ export function AnglesPanel({
         <EmptyPanel>
           {disabled
             ? "There is not enough published history in this niche to analyse."
-            : "Claude reads the framings, saturated subjects and openings above, then proposes specific angles this niche has not covered. One call, cached for six hours."}
+            : "Generate possible titles and angles from this niche’s measured evidence. These are proposals to validate, not proven opportunities. Uses your configured AI account and may incur API charges; cached for six hours."}
         </EmptyPanel>
       )}
 

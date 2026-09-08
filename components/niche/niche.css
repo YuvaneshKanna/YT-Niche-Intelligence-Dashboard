@@ -1,0 +1,26 @@
+.niche-page {
+  color-scheme: dark;
+  --primary: oklch(0.76 0.12 290);
+  --primary-foreground: oklch(0.16 0.02 290);
+  --muted-foreground: oklch(0.75 0 0);
+}
+.niche-page :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.niche-page button { cursor: pointer; }
+.niche-page button:disabled { cursor: default; }
+.niche-page select { min-width: 0; }
+.niche-page option { background: var(--card); color: var(--foreground); }
+.niche-page .grid > * { min-width: 0; }
+.niche-page > header button { min-height: 36px; }
+@media (max-width: 640px) {
+  .niche-page header > div { max-width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .niche-page *, .niche-page *::before, .niche-page *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

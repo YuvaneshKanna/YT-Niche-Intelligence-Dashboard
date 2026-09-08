@@ -137,7 +137,7 @@ export function ArchetypePanel({ archetypes }: { archetypes: ArchetypeResult[] }
       </div>
       <div className="border-t border-border px-4 py-2">
         <SampleNote>
-          Left of the line is below the publisher&apos;s own average, right is above. Share tells you
+          Left of the line is below the publisher&apos;s midpoint rank, right is above. Share tells you
           how much of the niche already uses it — a framing that wins and is rarely used is the
           interesting one.
         </SampleNote>
@@ -163,7 +163,7 @@ type Lane = { key: string; label: string; blurb: string; terms: TopicTerm[] }
 export function TopicBoard({ topics }: { topics: TopicTerm[] }) {
   const lanes: Lane[] = useMemo(() => {
     const saturated = topics.filter((t) => t.isSaturated).slice(0, 12)
-    const openings = topics.filter((t) => t.isWhitespace).slice(0, 12)
+    const openings = topics.filter((t) => t.isWhitespace && !t.isSaturated).slice(0, 12)
     const claimed = new Set([...saturated, ...openings].map((t) => t.term))
     const working = topics
       .filter((t) => !claimed.has(t.term) && t.medianPercentile >= 50)
@@ -178,13 +178,13 @@ export function TopicBoard({ topics }: { topics: TopicTerm[] }) {
       {
         key: "working",
         label: "Working",
-        blurb: "Above par, contested by a few channels. Proven demand with room left.",
+        blurb: "Above par, contested by a few channels. Relative performance is above baseline; demand is not established.",
         terms: working,
       },
       {
         key: "openings",
         label: "Openings",
-        blurb: "Beats par but almost nobody makes it. The clearest thing to test next.",
+        blurb: "Strong relative performance on few channels. Investigate before treating this as an opportunity.",
         terms: openings,
       },
     ]
@@ -266,6 +266,7 @@ export function TopicBoard({ topics }: { topics: TopicTerm[] }) {
  * value, never the only one.
  */
 export function OverlapPanel({ overlap }: { overlap: OverlapResult }) {
+  const [selectedPair, setSelectedPair] = useState<string | null>(null)
   const [hovered, setHovered] = useState<string | null>(null)
 
   const lookup = useMemo(() => {
@@ -279,8 +280,8 @@ export function OverlapPanel({ overlap }: { overlap: OverlapResult }) {
 
   if (overlap.handles.length < 2) {
     return (
-      <Panel className="h-full">
-        <PanelHeader title="Who ideates from the same well" />
+      <Panel id="channel-similarity" className="h-full">
+        <PanelHeader title="Shared title vocabulary" />
         <EmptyPanel>
           At least two channels with enough titles are needed to compare vocabularies. This niche has{" "}
           {overlap.handles.length}.
@@ -289,13 +290,14 @@ export function OverlapPanel({ overlap }: { overlap: OverlapResult }) {
     )
   }
 
+  const pair = overlap.pairs.find(p => `${p.a}::${p.b}` === selectedPair || `${p.b}::${p.a}` === selectedPair) ?? overlap.pairs[0]
   const max = Math.max(...overlap.pairs.map((p) => p.similarity), 1)
   const short = (h: string) => h.replace(/^@/, "").slice(0, 10)
 
   return (
-    <Panel className="h-full">
+    <Panel id="channel-similarity" className="h-full">
       <PanelHeader
-        title="Who ideates from the same well"
+        title="Shared title vocabulary"
         hint={`median overlap ${overlap.medianSimilarity ?? 0}%`}
         right={
           <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -343,12 +345,15 @@ export function OverlapPanel({ overlap }: { overlap: OverlapResult }) {
                     <td key={col} className="p-0">
                       <button
                         type="button"
+                        onClick={() => setSelectedPair(`${row}::${col}`)}
+                        aria-label={`${row} and ${col}: ${value}% vocabulary overlap. Inspect shared words`}
+                        aria-pressed={pair?.a === row && pair?.b === col || pair?.b === row && pair?.a === col}
                         onMouseEnter={() => setHovered(row)}
                         onMouseLeave={() => setHovered(null)}
                         onFocus={() => setHovered(row)}
                         onBlur={() => setHovered(null)}
                         title={`${row} and ${col} share ${value}% of their title vocabulary`}
-                        className={`h-7 w-8 rounded tabular-nums transition-all duration-150 ${
+                        className={`h-7 w-8 rounded tabular-nums transition-colors duration-150 ${
                           active ? "ring-1 ring-primary/60" : ""
                         }`}
                         style={{
@@ -374,10 +379,13 @@ export function OverlapPanel({ overlap }: { overlap: OverlapResult }) {
         </table>
       </div>
 
+      {pair && <div aria-live="polite" className="border-t border-border px-4 py-4 text-sm">
+        <p className="break-words font-medium">{pair.a} × {pair.b} · {pair.similarity}%</p>
+        <p className="mt-2 text-muted-foreground">Shared words: {pair.shared.length ? pair.shared.join(", ") : "No shared vocabulary"}</p>
+      </div>}
       <div className="border-t border-border px-4 py-2">
         <SampleNote>
-          Share of title vocabulary two channels have in common. High numbers across the grid mean
-          the niche ideates from one pool — easy to copy into, hard to stand out in.
+          Jaccard overlap measures shared title words, not semantic equivalence or copying. Select a cell to inspect shared vocabulary. Channels need at least 20 distinct content words; at most 12 channels are displayed.
         </SampleNote>
       </div>
     </Panel>
@@ -441,8 +449,7 @@ export function IdeationCoverageLine({ payload }: { payload: IdeationPayload }) 
       Read from {c.corpusSize.toLocaleString()} published{" "}
       {c.videoType === "SHORTS" ? "Shorts" : "long-form videos"} across {c.channelCount} channels
       {c.oldestPublished && c.newestPublished ? `, ${c.oldestPublished} to ${c.newestPublished}` : ""}.
-      Performance is each video&apos;s rank against its own channel&apos;s other uploads, so channel
-      size and video age cannot skew it.
+      Performance ranks lifetime views per observed day within each channel and format. This reduces channel-scale effects; age and sampling biases remain. p50 is the midpoint rank.
     </SampleNote>
   )
 }

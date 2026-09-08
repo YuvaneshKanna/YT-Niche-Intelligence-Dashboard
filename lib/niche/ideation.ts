@@ -13,9 +13,8 @@
 // So the primary statistic is never views. It is the video's PERCENTILE among
 // the other videos its own channel published in the same format. A title
 // pattern sitting at the 78th percentile means: when this channel used this
-// pattern, it beat 78% of its own other work. That is comparable across
-// channels of any size and videos of any age, and it is the only basis on
-// which "this pattern works here" can honestly be said.
+// pattern, it ranked above roughly 78% of its own tracked work. This reduces
+// channel-scale effects; upload age, retention and sampling biases remain.
 //
 // Raw views-per-day is carried alongside so the UI can show a real number,
 // but every ranking, every lift and every recommendation uses the percentile.
@@ -147,7 +146,7 @@ export function contentWords(title: string): string[] {
 }
 
 /** Content words plus adjacent pairs — "debt crisis" is one idea, not two. */
-function terms(title: string): string[] {
+export function terms(title: string): string[] {
   const words = contentWords(title)
   const out = [...words]
   for (let i = 0; i < words.length - 1; i++) out.push(`${words[i]} ${words[i + 1]}`)
@@ -200,10 +199,15 @@ export function scoreCorpus(corpus: CorpusVideo[]): ScoredVideo[] {
   for (const bucket of buckets.values()) {
     if (bucket.length < MIN_PEERS_FOR_PERCENTILE) continue
     const sorted = [...bucket].sort((a, b) => (a.viewsPerDay ?? 0) - (b.viewsPerDay ?? 0))
-    sorted.forEach((v, i) => {
-      // Midpoint of the rank interval, so a single video is never 0 or 100.
-      v.percentile = round(((i + 0.5) / sorted.length) * 100, 1)
-    })
+    for (let start = 0; start < sorted.length;) {
+      let end = start + 1
+      while (end < sorted.length && sorted[end].viewsPerDay === sorted[start].viewsPerDay) end++
+      // Equal measured performance must receive equal ranks, regardless of
+      // input order. An entirely tied channel sits at p50.
+      const percentile = round(((start + end) / 2 / sorted.length) * 100, 1)
+      for (let i = start; i < end; i++) sorted[i].percentile = percentile
+      start = end
+    }
   }
 
   return withVpd
@@ -336,9 +340,11 @@ export function overlapResult(scored: ScoredVideo[]): OverlapResult {
 
 export interface TopicTerm {
   term: string
+  /** Ranked videos used for the performance median, not all title matches. */
   videoCount: number
-  /** Distinct channels using it. 1 = one creator owns it; all = table stakes. */
+  /** All distinct tracked channels using the term, including unrankable ones. */
   channelCount: number
+  rankedChannelCount: number
   medianPercentile: number
   medianViewsPerDay: number | null
   /** True when few channels use it AND it outperforms — an opening. */
@@ -360,6 +366,14 @@ const WHITESPACE_PERCENTILE = 65
 export function topicTerms(scored: ScoredVideo[], channelCount: number): TopicTerm[] {
   const ranked = scored.filter((v) => v.percentile !== null)
   const byTerm = new Map<string, ScoredVideo[]>()
+  const adoption = new Map<string, Set<string>>()
+  for (const v of scored) {
+    for (const term of new Set(terms(v.title))) {
+      const channels = adoption.get(term) ?? new Set<string>()
+      channels.add(v.channelId)
+      adoption.set(term, channels)
+    }
+  }
 
   for (const v of ranked) {
     for (const t of new Set(terms(v.title))) {
@@ -372,19 +386,20 @@ export function topicTerms(scored: ScoredVideo[], channelCount: number): TopicTe
   const out: TopicTerm[] = []
   for (const [term, videos] of byTerm) {
     if (videos.length < MIN_TERM_VIDEOS) continue
-    const channels = new Set(videos.map((v) => v.handle))
+    const channels = adoption.get(term)!
     const medianPercentile = round(median(videos.map((v) => v.percentile as number)) ?? 50)
     const share = channelCount === 0 ? 0 : channels.size / channelCount
     out.push({
       term,
       videoCount: videos.length,
       channelCount: channels.size,
+      rankedChannelCount: new Set(videos.map(v => v.channelId)).size,
       medianPercentile,
       medianViewsPerDay: median(videos.map((v) => v.viewsPerDay ?? 0)),
       // A single video repeated in the term list is not an opening; require the
       // term to have worked across more than one upload.
       isWhitespace:
-        channels.size <= 2 && medianPercentile >= WHITESPACE_PERCENTILE && videos.length >= MIN_TERM_VIDEOS,
+        share < SATURATION_SHARE && channels.size <= 2 && medianPercentile >= WHITESPACE_PERCENTILE && videos.length >= MIN_TERM_VIDEOS,
       isSaturated: share >= SATURATION_SHARE,
       examples: [...videos]
         .sort((a, b) => (b.percentile ?? 0) - (a.percentile ?? 0))
