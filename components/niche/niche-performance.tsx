@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { AlertTriangle, ChevronRight, RefreshCw, Sparkles } from "lucide-react"
 import type {
@@ -12,9 +12,9 @@ import type {
   VideoType,
 } from "@/lib/metrics/types"
 import type { NexlevChannelDetail } from "@/lib/metrics/neon"
-import { peerRanks, recommend, type EvidenceAnchor } from "@/lib/niche/recommend"
+import type { IdeationPayload } from "@/lib/niche/ideation"
+import { peerRanks, recommend, formatCount, type EvidenceAnchor } from "@/lib/niche/recommend"
 import { PageNav } from "@/components/page-nav"
-import { SearchableDropdown } from "@/components/searchable-dropdown"
 import { OutlierTable } from "@/components/metrics/outlier-table"
 import { ChatPanel } from "@/components/metrics/chat-panel"
 import {
@@ -25,10 +25,19 @@ import {
   CompareTrend,
   SERIES,
 } from "@/components/metrics/views-trend"
-import { VerdictPanel } from "./verdict-panel"
+import { Headline } from "./headline"
 import { NextMoves } from "./next-moves"
 import { PeerRanks } from "./peer-ranks"
 import { ChannelLeaderboard } from "./channel-leaderboard"
+import { AnglesPanel } from "./angles-panel"
+import {
+  ArchetypePanel,
+  IdeationCoverageLine,
+  OverlapPanel,
+  RecyclingPanel,
+  TopicBoard,
+} from "./ideation-panels"
+import { Disclosure, EmptyPanel, Eyebrow, Panel } from "./ui"
 
 const RANGES: RangeKey[] = ["7d", "14d", "30d", "90d", "180d"]
 const RANGE_LABEL: Record<RangeKey, string> = {
@@ -43,17 +52,19 @@ const isRangeKey = (v: string | null): v is RangeKey =>
   v !== null && (RANGES as string[]).includes(v)
 
 /**
- * Niche Performance — the drill-down page.
+ * Niche Performance.
  *
- * /metrics answers "which niche should I look at". This page answers "what do I
- * make in it", for one niche group at a time. Structure is deliberately
- * answer-first: the verdict and the ranked moves sit above every chart, and
- * each move jumps to the panel whose numbers produced it.
+ * /metrics answers "which niche deserves attention". This page answers "what do
+ * I make in it" — and the answer it leads with is about IDEAS, not throughput:
+ * which title framings beat their publisher's own baseline, which subjects the
+ * niche has worn out, who is ideating from the same pool as everyone else, and
+ * what is left open. The performance numbers still exist, one disclosure down,
+ * because they are the context for those answers rather than the answer.
  *
- * Data comes from two places. The shared aggregate is the cached /api/metrics
- * payload — identical to what /metrics renders, so the two pages can never
- * disagree. The NexLev money layer comes from /api/niche-detail, which returns
- * the enrichment fields the metrics payload collapses away.
+ * Three data sources, all cached, in decreasing order of how often they change:
+ *   /api/metrics        the shared windowed aggregate, identical to /metrics
+ *   /api/niche-ideation the permanent title corpus, analysed deterministically
+ *   /api/niche-angles   the semantic read, on demand only — it costs money
  */
 export function NichePerformance() {
   const router = useRouter()
@@ -62,20 +73,19 @@ export function NichePerformance() {
   const [range, setRange] = useState<RangeKey>(() =>
     isRangeKey(searchParams.get("range")) ? (searchParams.get("range") as RangeKey) : "30d"
   )
-  const [selectedGroup, setSelectedGroup] = useState<string | null>(
-    () => searchParams.get("group")
-  )
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(() => searchParams.get("group"))
   const [videoType, setVideoType] = useState<VideoType>("LONG_FORM")
+  const [formatTouched, setFormatTouched] = useState(false)
 
   const [data, setData] = useState<MetricsPayload | null>(null)
   const [nexlev, setNexlev] = useState<NexlevChannelDetail[]>([])
+  const [ideation, setIdeation] = useState<IdeationPayload | null>(null)
+  const [ideationLoading, setIdeationLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ message: string; code?: string } | null>(null)
   const [showWarnings, setShowWarnings] = useState(false)
   const [showChat, setShowChat] = useState(false)
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set())
-
-  const scrollRef = useRef<HTMLElement | null>(null)
 
   // ── Data ───────────────────────────────────────────────────────────────
 
@@ -102,8 +112,8 @@ export function NichePerformance() {
     loadMetrics(range)
   }, [range, loadMetrics])
 
-  // The money layer is supplementary: a failure here leaves the page fully
-  // usable on measured view data, so it never surfaces as a page-level error.
+  // Both supplementary reads fail soft: the page stays usable on measured view
+  // data if either is unavailable, so neither becomes a page-level error.
   useEffect(() => {
     if (!selectedGroup) return
     let cancelled = false
@@ -120,36 +130,53 @@ export function NichePerformance() {
     }
   }, [selectedGroup])
 
-  // ── Selection ──────────────────────────────────────────────────────────
-
-  const groupNames = useMemo(
-    () => (data ? data.groups.map((g) => g.nicheGroup) : []),
-    [data]
-  )
-
-  // Default to the biggest *named* niche group, never "Overall" — Overall is
-  // the ungrouped remainder of the roster, and drilling into it answers
-  // nothing about a niche.
-  useEffect(() => {
-    if (selectedGroup || !data?.groups.length) return
-    const named = data.groups.filter((g) => g.nicheGroup !== "Overall")
-    const pick = [...(named.length > 0 ? named : data.groups)].sort(
-      (a, b) => b.totalViewsDelta - a.totalViewsDelta
-    )[0]
-    setSelectedGroup(pick.nicheGroup)
-  }, [data, selectedGroup])
-
-  // Keep the URL shareable — a niche + range is exactly what gets pasted into
-  // a message. `replace` so back does not walk every filter change.
   useEffect(() => {
     if (!selectedGroup) return
-    const next = `/niche?group=${encodeURIComponent(selectedGroup)}&range=${range}`
-    router.replace(next, { scroll: false })
+    let cancelled = false
+    setIdeation(null)
+    setIdeationLoading(true)
+    fetch(
+      `/api/niche-ideation?group=${encodeURIComponent(selectedGroup)}&format=${videoType}`
+    )
+      .then((res) => res.json())
+      .then((json) => {
+        if (cancelled) return
+        if (json.success) setIdeation(json.data as IdeationPayload)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setIdeationLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedGroup, videoType])
+
+  // ── Selection ──────────────────────────────────────────────────────────
+
+  const groups = useMemo(() => {
+    if (!data) return []
+    return [...data.groups].sort((a, b) => b.totalViewsDelta - a.totalViewsDelta)
+  }, [data])
+
+  // Default to the biggest *named* group. "Overall" is the ungrouped remainder
+  // of the roster; drilling into it answers nothing about a niche.
+  useEffect(() => {
+    if (selectedGroup || groups.length === 0) return
+    const named = groups.filter((g) => g.nicheGroup !== "Overall")
+    setSelectedGroup((named[0] ?? groups[0]).nicheGroup)
+  }, [groups, selectedGroup])
+
+  useEffect(() => {
+    if (!selectedGroup) return
+    router.replace(`/niche?group=${encodeURIComponent(selectedGroup)}&range=${range}`, {
+      scroll: false,
+    })
   }, [selectedGroup, range, router])
 
   const group: NicheGroupSummary | null = useMemo(
-    () => data?.groups.find((g) => g.nicheGroup === selectedGroup) ?? null,
-    [data, selectedGroup]
+    () => groups.find((g) => g.nicheGroup === selectedGroup) ?? null,
+    [groups, selectedGroup]
   )
 
   const channels: ChannelRollup[] = useMemo(() => {
@@ -165,19 +192,20 @@ export function NichePerformance() {
     return data.videos.filter((v) => handles.has(v.handle))
   }, [data, channels])
 
-  const nexlevByChannelId = useMemo(
-    () => new Map(nexlev.map((n) => [n.channelId, n])),
-    [nexlev]
-  )
+  const nexlevByChannelId = useMemo(() => new Map(nexlev.map((n) => [n.channelId, n])), [nexlev])
 
-  // Open on whichever format this niche actually has tracked videos for, so a
-  // long-form niche does not greet you with an empty Shorts table.
+  // Open on the format this niche actually publishes — but stop guessing the
+  // moment the user picks one, or their choice would be overwritten on every
+  // niche switch.
   useEffect(() => {
-    if (videos.length === 0) return
-    const long = videos.filter((v) => v.videoType === "LONG_FORM").length
-    const shorts = videos.length - long
-    setVideoType(shorts > long ? "SHORTS" : "LONG_FORM")
-  }, [videos])
+    if (formatTouched || !ideation) return
+    const { LONG_FORM, SHORTS } = ideation.coverage.byFormat
+    setVideoType(SHORTS > LONG_FORM ? "SHORTS" : "LONG_FORM")
+  }, [ideation, formatTouched])
+
+  useEffect(() => {
+    setFormatTouched(false)
+  }, [selectedGroup])
 
   // ── Derived ────────────────────────────────────────────────────────────
 
@@ -192,7 +220,6 @@ export function NichePerformance() {
   }, [group, data])
 
   const allHandlesSorted = useMemo(() => [...channels.map((c) => c.handle)].sort(), [channels])
-
   const compareSelection = useMemo(
     () => channels.slice(0, COMPARE_MAX_SERIES).map((c) => ({ key: c.handle, trend: c.trend })),
     [channels]
@@ -207,7 +234,6 @@ export function NichePerformance() {
     [compareSelection, allHandlesSorted]
   )
   const compareRows = useMemo(() => buildCompareRows(compareSelection), [compareSelection])
-  const channelsOmitted = channels.length - compareSelection.length
 
   useEffect(() => setHiddenKeys(new Set()), [selectedGroup, range])
 
@@ -224,17 +250,19 @@ export function NichePerformance() {
     })
   }, [])
 
+  const groupRank = group === null ? null : groups.findIndex((g) => g.nicheGroup === group.nicheGroup) + 1
+
   // ── Render ─────────────────────────────────────────────────────────────
 
   if (error) {
     return (
       <div className="flex h-screen items-center justify-center bg-background p-6">
         <div className="max-w-md rounded-xl border border-destructive/40 bg-card p-5">
-          <h2 className="text-sm font-semibold text-foreground">Could not load niche metrics</h2>
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{error.message}</p>
+          <h2 className="text-[13px] font-semibold text-foreground">Could not load niche metrics</h2>
+          <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">{error.message}</p>
           <button
             onClick={() => loadMetrics(range, true)}
-            className="mt-4 rounded-lg border border-border px-3 py-1.5 text-[11px] text-foreground hover:border-primary/50"
+            className="mt-4 cursor-pointer rounded-lg border border-border px-3 py-1.5 text-[11px] text-foreground transition-[transform,border-color] duration-150 ease-out hover:border-primary/50 active:scale-[0.96]"
           >
             Retry
           </button>
@@ -245,24 +273,43 @@ export function NichePerformance() {
 
   return (
     <div className="flex h-screen flex-col bg-background">
-      <header className="sticky top-0 z-30 flex flex-wrap items-center gap-3 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur">
+      {/* One toolbar row. The previous header spent a full-width band on the
+          niche name and pushed every control onto a second line. */}
+      <header className="sticky top-0 z-30 flex h-12 flex-shrink-0 items-center gap-3 border-b border-border bg-background/90 px-4 backdrop-blur">
         <PageNav />
 
-        <SearchableDropdown
-          value={selectedGroup ?? ""}
-          options={groupNames}
-          placeholder="Select a niche group"
-          onSelect={(v) => setSelectedGroup(v)}
-        />
-
         <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
+            {(["LONG_FORM", "SHORTS"] as VideoType[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => {
+                  setVideoType(t)
+                  setFormatTouched(true)
+                }}
+                aria-pressed={videoType === t}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors duration-150 ${
+                  videoType === t
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: SERIES[t].color }}
+                />
+                {SERIES[t].label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
             {RANGES.map((r) => (
               <button
                 key={r}
                 onClick={() => setRange(r)}
                 aria-pressed={range === r}
-                className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                className={`cursor-pointer rounded-md px-2 py-1 text-[11px] font-medium transition-colors duration-150 ${
                   range === r
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -276,15 +323,15 @@ export function NichePerformance() {
           <button
             onClick={() => loadMetrics(range, true)}
             aria-label="Refresh metrics"
-            title="Re-read the source, bypassing the 30-minute cache"
-            className="rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+            title="Re-read the source, bypassing the cache"
+            className="cursor-pointer rounded-lg border border-border p-1.5 text-muted-foreground transition-[transform,color,border-color] duration-150 ease-out hover:border-primary/50 hover:text-foreground active:scale-[0.96]"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
 
           <button
             onClick={() => setShowChat(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground transition-[transform,opacity] duration-150 ease-out hover:opacity-90 active:scale-[0.96]"
           >
             <Sparkles className="h-3.5 w-3.5" />
             Ask Claude
@@ -292,146 +339,199 @@ export function NichePerformance() {
         </div>
       </header>
 
-      <main ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
-        {/* Coverage line — what the numbers below are actually made of. */}
-        {data && (
-          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-            <span>
-              Coverage: <span className="text-foreground">{data.coverageDays}d</span>
-              {data.coverageStart && data.coverageEnd
-                ? ` (${data.coverageStart} → ${data.coverageEnd})`
-                : ""}
-            </span>
-            <span>
-              Generated {new Date(data.generatedAt).toLocaleString()}
-            </span>
-            {data.warnings.length > 0 && (
-              <button
-                onClick={() => setShowWarnings((v) => !v)}
-                className="flex items-center gap-1 text-amber-400 hover:underline"
-              >
-                <AlertTriangle className="h-3 w-3" />
-                {data.warnings.length} data caveat{data.warnings.length === 1 ? "" : "s"}
-                <ChevronRight
-                  className={`h-3 w-3 transition-transform ${showWarnings ? "rotate-90" : ""}`}
-                />
-              </button>
-            )}
+      <main className="flex-1 overflow-y-auto">
+        {/* Niche rail: switching niche is the page's primary action, so it is a
+            visible row of targets, not a hidden dropdown. */}
+        <div className="border-b border-border bg-card/30">
+          <div className="flex gap-1.5 overflow-x-auto px-4 py-2">
+            {groups.map((g) => {
+              const active = g.nicheGroup === selectedGroup
+              return (
+                <button
+                  key={g.nicheGroup}
+                  onClick={() => setSelectedGroup(g.nicheGroup)}
+                  aria-pressed={active}
+                  className={`flex flex-shrink-0 cursor-pointer items-baseline gap-2 rounded-lg px-2.5 py-1.5 transition-[transform,background-color,box-shadow] duration-150 ease-out active:scale-[0.97] ${
+                    active
+                      ? "bg-primary/15 shadow-[inset_0_0_0_1px_var(--primary)]"
+                      : "hover:bg-muted/50"
+                  }`}
+                >
+                  <span
+                    className={`text-[12px] font-medium ${active ? "text-foreground" : "text-muted-foreground"}`}
+                  >
+                    {g.nicheGroup}
+                  </span>
+                  <span className="text-[11px] tabular-nums text-muted-foreground/80">
+                    {formatCount(g.totalViewsDelta)}
+                  </span>
+                </button>
+              )
+            })}
           </div>
-        )}
+        </div>
 
-        {showWarnings && data && data.warnings.length > 0 && (
-          <ul className="mb-3 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-            {data.warnings.map((w, i) => (
-              <li key={i} className="text-[11px] leading-relaxed text-amber-200/90">
-                {w}
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="flex flex-col gap-4 px-4 py-4">
+          {loading && !data ? (
+            <div className="flex h-64 items-center justify-center">
+              <p className="text-[13px] text-muted-foreground">Loading niche metrics…</p>
+            </div>
+          ) : !group ? (
+            <div className="flex h-64 items-center justify-center">
+              <p className="text-[13px] text-muted-foreground">
+                No niche group selected. Pick one from the rail above.
+              </p>
+            </div>
+          ) : (
+            <>
+              <Headline group={group} rank={groupRank} outOf={groups.length} />
 
-        {loading && !data ? (
-          <div className="flex h-64 items-center justify-center">
-            <p className="text-sm text-muted-foreground">Loading niche metrics…</p>
-          </div>
-        ) : !group ? (
-          <div className="flex h-64 items-center justify-center">
-            <p className="text-sm text-muted-foreground">
-              No niche group selected. Pick one from the dropdown above.
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {/* Answer first: the verdict and what to do about it. */}
-            <div className="grid gap-3 lg:grid-cols-12">
-              <div className="lg:col-span-5">
-                <VerdictPanel group={group} />
+              {data && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                  <span>
+                    Coverage {data.coverageDays}d
+                    {data.coverageStart && data.coverageEnd
+                      ? ` · ${data.coverageStart} → ${data.coverageEnd}`
+                      : ""}
+                  </span>
+                  <span>Generated {new Date(data.generatedAt).toLocaleString()}</span>
+                  {data.warnings.length > 0 && (
+                    <button
+                      onClick={() => setShowWarnings((v) => !v)}
+                      className="flex cursor-pointer items-center gap-1 text-amber-400 hover:underline"
+                    >
+                      <AlertTriangle className="h-3 w-3" />
+                      {data.warnings.length} data caveat{data.warnings.length === 1 ? "" : "s"}
+                      <ChevronRight
+                        className={`h-3 w-3 transition-transform duration-200 ${showWarnings ? "rotate-90" : ""}`}
+                      />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {showWarnings && data && (
+                <ul className="space-y-1 rounded-lg bg-amber-500/5 px-3 py-2 ring-1 ring-inset ring-amber-500/30">
+                  {data.warnings.map((w, i) => (
+                    <li key={i} className="text-[11px] leading-relaxed text-amber-200/90">
+                      {w}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* ── The ideation layer: what this page exists for ── */}
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                  <Eyebrow>How this niche ideates</Eyebrow>
+                  {ideation && !ideation.emptyReason && (
+                    <IdeationCoverageLine payload={ideation} />
+                  )}
+                </div>
+
+                {ideationLoading && !ideation ? (
+                  <Panel>
+                    <EmptyPanel>Reading the published title corpus…</EmptyPanel>
+                  </Panel>
+                ) : !ideation || ideation.emptyReason ? (
+                  <Panel>
+                    <EmptyPanel>
+                      {ideation?.emptyReason ??
+                        "The ideation analysis is unavailable for this niche."}
+                    </EmptyPanel>
+                  </Panel>
+                ) : (
+                  <>
+                    <div className="grid gap-3 xl:grid-cols-12">
+                      <div className="xl:col-span-5">
+                        <ArchetypePanel archetypes={ideation.archetypes} />
+                      </div>
+                      <div className="xl:col-span-7">
+                        <TopicBoard topics={ideation.topics} />
+                      </div>
+                    </div>
+                    <div className="grid gap-3 xl:grid-cols-12">
+                      <div className="xl:col-span-7">
+                        <OverlapPanel overlap={ideation.overlap} />
+                      </div>
+                      <div className="xl:col-span-5">
+                        <RecyclingPanel repetition={ideation.repetition} />
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
-              <div className="lg:col-span-7">
+
+              <AnglesPanel
+                group={group.nicheGroup}
+                videoType={videoType}
+                disabled={!ideation || Boolean(ideation.emptyReason)}
+              />
+
+              {/* ── The action layer ── */}
+              <div className="flex flex-col gap-2">
+                <Eyebrow>What the numbers say to do</Eyebrow>
                 <NextMoves
                   moves={recommendation.moves}
                   emptyReason={recommendation.emptyReason}
                   onShowEvidence={showEvidence}
                 />
               </div>
-            </div>
 
-            {/* Evidence. */}
-            <div className="grid gap-3 lg:grid-cols-12">
-              <div className="lg:col-span-4">
-                <PeerRanks measures={measures} groupName={group.nicheGroup} />
-              </div>
-
-              <section
-                id="trend"
-                className="flex flex-col overflow-hidden rounded-xl border border-border bg-card scroll-mt-24 lg:col-span-8"
+              {/* ── Performance context, one disclosure down ── */}
+              <Disclosure
+                label="Performance context"
+                hint={`rank vs ${groups.length - 1} other niches, and who is driving this one`}
               >
-                <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-                  <div className="flex items-baseline gap-2">
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Who is driving {group.nicheGroup}
-                    </h3>
-                    <span className="text-[11px] text-muted-foreground">
-                      daily views gained per channel
-                      {channelsOmitted > 0 ? ` · ${channelsOmitted} smaller channel${channelsOmitted === 1 ? "" : "s"} omitted` : ""}
-                    </span>
+                <div className="grid gap-3 xl:grid-cols-12">
+                  <div className="xl:col-span-5">
+                    <PeerRanks measures={measures} groupName={group.nicheGroup} />
                   </div>
-                  <CompareLegend
-                    entries={compareEntries}
-                    hiddenKeys={hiddenKeys}
-                    onToggle={toggleSeries}
-                  />
-                </header>
-                <div className="p-2">
-                  <CompareTrend
-                    data={compareRows}
-                    entries={compareEntries}
-                    hiddenKeys={hiddenKeys}
-                    height={280}
-                  />
-                </div>
-              </section>
-            </div>
-
-            <ChannelLeaderboard
-              channels={channels}
-              nexlevByChannelId={nexlevByChannelId}
-              groupName={group.nicheGroup}
-            />
-
-            {/* The drill: every tracked video in the niche, one format at a time. */}
-            <section id="outliers" className="flex flex-col gap-2 scroll-mt-24">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[11px] uppercase tracking-widest text-muted-foreground">
-                  Outliers · {group.nicheGroup}
-                </h2>
-                <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
-                  {(["LONG_FORM", "SHORTS"] as VideoType[]).map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setVideoType(t)}
-                      aria-pressed={videoType === t}
-                      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                        videoType === t
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: SERIES[t].color }}
+                  <Panel id="trend" className="xl:col-span-7">
+                    <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+                      <h3 className="text-[13px] font-semibold text-foreground">
+                        Daily views gained per channel
+                      </h3>
+                      <CompareLegend
+                        entries={compareEntries}
+                        hiddenKeys={hiddenKeys}
+                        onToggle={toggleSeries}
                       />
-                      {SERIES[t].label}
-                    </button>
-                  ))}
+                    </header>
+                    <div className="p-2">
+                      <CompareTrend
+                        data={compareRows}
+                        entries={compareEntries}
+                        hiddenKeys={hiddenKeys}
+                        height={260}
+                      />
+                    </div>
+                  </Panel>
                 </div>
-              </div>
-              <div className="min-h-[420px]">
-                <OutlierTable videos={videos} videoType={videoType} />
-              </div>
-            </section>
-          </div>
-        )}
+              </Disclosure>
+
+              <Disclosure
+                label="Channels"
+                hint={`${channels.length} in this niche, with measured RPM where NexLev has it`}
+              >
+                <ChannelLeaderboard
+                  channels={channels}
+                  nexlevByChannelId={nexlevByChannelId}
+                  groupName={group.nicheGroup}
+                />
+              </Disclosure>
+
+              <Disclosure
+                label="Outlier videos"
+                hint={`tracked ${videoType === "SHORTS" ? "Shorts" : "long-form"} in the last ${RANGE_LABEL[range]}`}
+              >
+                <div id="outliers" className="min-h-[420px] scroll-mt-20">
+                  <OutlierTable videos={videos} videoType={videoType} />
+                </div>
+              </Disclosure>
+            </>
+          )}
+        </div>
       </main>
 
       <ChatPanel

@@ -588,3 +588,92 @@ export async function readNexlevChannels(nicheGroup: string): Promise<NexlevChan
     fetchedAt: r.fetched_at ? String(r.fetched_at) : null,
   }))
 }
+
+/**
+ * One tracked video, reduced to what an ideation analysis needs.
+ *
+ * Deliberately NOT windowed. `videos` and `video_meta` are permanent — only
+ * `snapshots` rows are pruned — so the title record goes back to 2017 even
+ * though the per-day metrics do not. Judging what a niche makes, and which of
+ * it works, is a question about the whole history, not the last 30 days.
+ */
+export interface CorpusVideo {
+  videoId: string
+  channelId: string
+  handle: string
+  title: string
+  videoType: VideoType
+  durationSeconds: number
+  publishedAt: string
+  /** Highest view count ever observed. Null when no snapshot carries one. */
+  views: number | null
+  /** Days between publication and the last snapshot that saw this video. */
+  observedDays: number
+  /** Best outlier score ever recorded for this video. */
+  outlierScore: number
+}
+
+/**
+ * The full title corpus for one niche group.
+ *
+ * Views come from `max(views)`, i.e. lifetime-to-last-observation rather than
+ * a windowed delta. That is the right basis for "did this idea work", but it
+ * is age-biased by construction — a 2023 upload has had three years to
+ * accumulate. Callers MUST normalise before comparing (lib/niche/ideation.ts
+ * ranks within channel and format rather than comparing raw counts).
+ */
+export async function readNicheCorpus(nicheGroup: string): Promise<CorpusVideo[]> {
+  const rows = (await sql()`
+    SELECT
+      v.video_id                                   AS video_id,
+      v.channel_id                                 AS channel_id,
+      c.handle                                     AS handle,
+      vm.title                                     AS title,
+      v.video_type                                 AS video_type,
+      v.duration_seconds                           AS duration_seconds,
+      v.published_at::text                         AS published_at,
+      agg.max_views                                AS views,
+      agg.last_seen::text                          AS last_seen,
+      COALESCE(agg.max_outlier, 0)::float8         AS outlier_score
+    FROM videos v
+    JOIN channels c ON c.channel_id = v.channel_id
+    -- Titles change; take the most recent one the pipeline recorded.
+    JOIN LATERAL (
+      SELECT title FROM video_meta m
+      WHERE m.video_id = v.video_id
+      ORDER BY changed_at DESC LIMIT 1
+    ) vm ON true
+    LEFT JOIN LATERAL (
+      SELECT max(s.views) AS max_views,
+             max(s.snapshot_date) AS last_seen,
+             max(s.outlier_score) AS max_outlier
+      FROM snapshots s WHERE s.video_id = v.video_id
+    ) agg ON true
+    WHERE COALESCE(NULLIF(btrim(c.niche_group), ''), 'Overall') = ${nicheGroup}
+  `) as Record<string, unknown>[]
+
+  return rows.map((r) => {
+    const publishedAt = str(r.published_at)
+    const lastSeen = str(r.last_seen)
+    const views = r.views === null || r.views === undefined ? null : num(r.views)
+    const observedDays =
+      publishedAt && lastSeen
+        ? Math.max(
+            1,
+            Math.round((Date.parse(lastSeen) - Date.parse(publishedAt)) / 86400000)
+          )
+        : 1
+    return {
+      videoId: str(r.video_id),
+      channelId: str(r.channel_id),
+      handle: str(r.handle),
+      title: str(r.title),
+      videoType: asVideoType(str(r.video_type)),
+      durationSeconds: num(r.duration_seconds),
+      publishedAt,
+      views,
+      observedDays,
+      outlierScore: num(r.outlier_score),
+    }
+  })
+}
