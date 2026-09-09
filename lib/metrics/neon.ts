@@ -403,3 +403,277 @@ export async function diagnose(sinceDate: string): Promise<NeonDiagnostics[]> {
     },
   ]
 }
+
+/**
+ * Per-channel RPM from the Stage 3 NexLev enrichment tables, and a per-niche
+ * median as a fallback for niche groups no enriched channel belongs to yet.
+ *
+ * Which column is "the" RPM depends on what the channel actually publishes,
+ * because NexLev measures the two formats separately and they are an order of
+ * magnitude apart:
+ *
+ *  - `SHORTS_ONLY` → `short_rpm`. Shorts RPM is genuinely ~$0.04, not a
+ *    scaling bug; a Shorts-only channel scored on its long-form RPM would be
+ *    credited with revenue it cannot earn.
+ *  - everything else (`MIXED`, `LONG_ONLY`, and rows with no `channel_type`)
+ *    → `long_rpm`.
+ *  - `batch_rpm` as the fallback, which is what the ~150-channel tail has:
+ *    the weekly `get_batch_channel_metrics_v2` layer covers the whole roster
+ *    and writes only `batch_rpm`, while the nightly geography layer that
+ *    writes `long_rpm`/`short_rpm` is capped at 20 channels a day.
+ *
+ * `batch_rpm` is a NexLev model prediction and `long_rpm` a measurement, so
+ * they are deliberately not merged in the schema (see .agents/schema.sql) —
+ * this is a read-time preference order, measured first, predicted second.
+ *
+ * Neon-only: the Sheets path has no enrichment tables and leaves both maps
+ * undefined, which puts the opportunity score back on the niche-profile
+ * estimate exactly as before.
+ */
+export interface NexlevRpm {
+  /** Effective RPM per `channel_id`. */
+  byChannelId: Map<string, number>
+  /** Median effective RPM per lowercase `channels.niche`. */
+  byNiche: Map<string, number>
+}
+
+export async function readNexlevRpm(): Promise<NexlevRpm> {
+  const rows = (await sql()`
+    SELECT
+      n.channel_id                 AS channel_id,
+      lower(COALESCE(c.niche, '')) AS niche,
+      COALESCE(
+        CASE WHEN n.channel_type = 'SHORTS_ONLY' THEN n.short_rpm ELSE n.long_rpm END,
+        n.batch_rpm
+      )::float8                    AS rpm
+    FROM channel_nexlev n
+    JOIN channels c ON c.channel_id = n.channel_id
+    WHERE COALESCE(
+      CASE WHEN n.channel_type = 'SHORTS_ONLY' THEN n.short_rpm ELSE n.long_rpm END,
+      n.batch_rpm
+    ) IS NOT NULL
+  `) as Record<string, unknown>[]
+
+  const byChannelId = new Map<string, number>()
+  const perNiche = new Map<string, number[]>()
+
+  for (const r of rows) {
+    const channelId = str(r.channel_id)
+    if (!channelId) continue
+    const rpm = num(r.rpm)
+    byChannelId.set(channelId, rpm)
+
+    const niche = str(r.niche)
+    if (!niche) continue
+    const bucket = perNiche.get(niche)
+    if (bucket) bucket.push(rpm)
+    else perNiche.set(niche, [rpm])
+  }
+
+  const byNiche = new Map<string, number>()
+  for (const [niche, values] of perNiche) {
+    values.sort((a, b) => a - b)
+    const mid = Math.floor(values.length / 2)
+    byNiche.set(
+      niche,
+      values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid]
+    )
+  }
+
+  return { byChannelId, byNiche }
+}
+
+/**
+ * Everything `channel_nexlev` knows about one channel, unaggregated.
+ *
+ * `readNexlevRpm` above collapses this table to a single effective RPM per
+ * channel because that is all the opportunity score needs. The niche
+ * drill-down page needs the parts that collapse throws away — the long/short
+ * RPM split, the revenue figures, and the audience JSONB — so this reader
+ * returns the row as-is and lets the caller decide.
+ *
+ * Every numeric field is nullable on purpose: NexLev returns partial rows for
+ * channels it has thin data on, and a missing RPM must stay missing rather
+ * than read as $0.
+ */
+export interface NexlevChannelDetail {
+  channelId: string
+  handle: string
+  nicheGroup: string
+  channelType: string | null
+  categoryRpm: number | null
+  longRpm: number | null
+  shortRpm: number | null
+  monthRevenue: number | null
+  monthLongRevenue: number | null
+  monthShortRevenue: number | null
+  longViewCount: number | null
+  shortViewCount: number | null
+  weightedAvgDuration: number | null
+  /** NexLev's gender split, shape as returned. Null when not enriched. */
+  gender: unknown
+  /** NexLev's age-band split, shape as returned. Null when not enriched. */
+  age: unknown
+  /** NexLev's per-country viewership split, shape as returned. */
+  viewershipCountry: unknown
+  fetchedAt: string | null
+}
+
+const nullableNum = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === "") return null
+  const n = typeof v === "number" ? v : parseFloat(String(v))
+  return Number.isFinite(n) ? n : null
+}
+
+const nullableStr = (v: unknown): string | null => {
+  const s = str(v)
+  return s === "" ? null : s
+}
+
+/**
+ * NexLev enrichment for every channel in one niche group.
+ *
+ * A channel whose `niche_group` is blank belongs to the "Overall" bucket —
+ * the same fold `lib/metrics/aggregate.ts` applies via `UNGROUPED`, repeated
+ * here in SQL so the two agree on which channels a group contains.
+ *
+ * Returns only channels that have a `channel_nexlev` row; the caller knows
+ * the group's full channel list from the metrics payload and can report
+ * coverage by comparing the two.
+ */
+export async function readNexlevChannels(nicheGroup: string): Promise<NexlevChannelDetail[]> {
+  const rows = (await sql()`
+    SELECT
+      n.channel_id            AS channel_id,
+      c.handle                AS handle,
+      COALESCE(NULLIF(btrim(c.niche_group), ''), 'Overall') AS niche_group,
+      n.channel_type          AS channel_type,
+      n.category_rpm::float8  AS category_rpm,
+      n.long_rpm::float8      AS long_rpm,
+      n.short_rpm::float8     AS short_rpm,
+      n.month_revenue::float8 AS month_revenue,
+      n.month_long_revenue::float8  AS month_long_revenue,
+      n.month_short_revenue::float8 AS month_short_revenue,
+      n.long_view_count       AS long_view_count,
+      n.short_view_count      AS short_view_count,
+      n.weighted_avg_duration AS weighted_avg_duration,
+      n.gender                AS gender,
+      n.age                   AS age,
+      n.viewership_country    AS viewership_country,
+      n.fetched_at            AS fetched_at
+    FROM channel_nexlev n
+    JOIN channels c ON c.channel_id = n.channel_id
+    WHERE COALESCE(NULLIF(btrim(c.niche_group), ''), 'Overall') = ${nicheGroup}
+      AND n.fetched_at IS NOT NULL
+    ORDER BY c.handle
+  `) as Record<string, unknown>[]
+
+  return rows.map((r) => ({
+    channelId: str(r.channel_id),
+    handle: str(r.handle),
+    nicheGroup: str(r.niche_group),
+    channelType: nullableStr(r.channel_type),
+    categoryRpm: nullableNum(r.category_rpm),
+    longRpm: nullableNum(r.long_rpm),
+    shortRpm: nullableNum(r.short_rpm),
+    monthRevenue: nullableNum(r.month_revenue),
+    monthLongRevenue: nullableNum(r.month_long_revenue),
+    monthShortRevenue: nullableNum(r.month_short_revenue),
+    longViewCount: nullableNum(r.long_view_count),
+    shortViewCount: nullableNum(r.short_view_count),
+    weightedAvgDuration: nullableNum(r.weighted_avg_duration),
+    gender: r.gender ?? null,
+    age: r.age ?? null,
+    viewershipCountry: r.viewership_country ?? null,
+    fetchedAt: r.fetched_at ? String(r.fetched_at) : null,
+  }))
+}
+
+/**
+ * One tracked video, reduced to what an ideation analysis needs.
+ *
+ * Deliberately NOT windowed. `videos` and `video_meta` are permanent — only
+ * `snapshots` rows are pruned — so the title record goes back to 2017 even
+ * though the per-day metrics do not. Judging what a niche makes, and which of
+ * it works, is a question about the whole history, not the last 30 days.
+ */
+export interface CorpusVideo {
+  videoId: string
+  channelId: string
+  handle: string
+  title: string
+  videoType: VideoType
+  durationSeconds: number
+  publishedAt: string
+  /** Highest view count ever observed. Null when no snapshot carries one. */
+  views: number | null
+  /** Days between publication and the last snapshot that saw this video. */
+  observedDays: number
+  /** Best outlier score ever recorded for this video. */
+  outlierScore: number
+}
+
+/**
+ * The full title corpus for one niche group.
+ *
+ * Views come from `max(views)`, i.e. lifetime-to-last-observation rather than
+ * a windowed delta. That is the right basis for "did this idea work", but it
+ * is age-biased by construction — a 2023 upload has had three years to
+ * accumulate. Callers MUST normalise before comparing (lib/niche/ideation.ts
+ * ranks within channel and format rather than comparing raw counts).
+ */
+export async function readNicheCorpus(nicheGroup: string): Promise<CorpusVideo[]> {
+  const rows = (await sql()`
+    SELECT
+      v.video_id                                   AS video_id,
+      v.channel_id                                 AS channel_id,
+      c.handle                                     AS handle,
+      vm.title                                     AS title,
+      v.video_type                                 AS video_type,
+      v.duration_seconds                           AS duration_seconds,
+      v.published_at::text                         AS published_at,
+      agg.max_views                                AS views,
+      agg.last_seen::text                          AS last_seen,
+      COALESCE(agg.max_outlier, 0)::float8         AS outlier_score
+    FROM videos v
+    JOIN channels c ON c.channel_id = v.channel_id
+    -- Titles change; take the most recent one the pipeline recorded.
+    JOIN LATERAL (
+      SELECT title FROM video_meta m
+      WHERE m.video_id = v.video_id
+      ORDER BY changed_at DESC LIMIT 1
+    ) vm ON true
+    LEFT JOIN LATERAL (
+      SELECT max(s.views) AS max_views,
+             max(s.snapshot_date) AS last_seen,
+             max(s.outlier_score) AS max_outlier
+      FROM snapshots s WHERE s.video_id = v.video_id
+    ) agg ON true
+    WHERE COALESCE(NULLIF(btrim(c.niche_group), ''), 'Overall') = ${nicheGroup}
+  `) as Record<string, unknown>[]
+
+  return rows.map((r) => {
+    const publishedAt = str(r.published_at)
+    const lastSeen = str(r.last_seen)
+    const views = r.views === null || r.views === undefined ? null : num(r.views)
+    const observedDays =
+      publishedAt && lastSeen
+        ? Math.max(
+            1,
+            Math.round((Date.parse(lastSeen) - Date.parse(publishedAt)) / 86400000)
+          )
+        : 1
+    return {
+      videoId: str(r.video_id),
+      channelId: str(r.channel_id),
+      handle: str(r.handle),
+      title: str(r.title),
+      videoType: asVideoType(str(r.video_type)),
+      durationSeconds: num(r.duration_seconds),
+      publishedAt,
+      views,
+      observedDays,
+      outlierScore: num(r.outlier_score),
+    }
+  })
+}

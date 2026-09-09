@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BarChart3, Check, ChevronDown, LayoutGrid, type LucideIcon } from "lucide-react"
+import { BarChart3, Check, ChevronDown, LayoutGrid, Telescope, type LucideIcon } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +25,7 @@ export interface DashboardPage {
 export const DASHBOARD_PAGES: DashboardPage[] = [
   { href: "/", label: "YT Niche Overview", icon: LayoutGrid },
   { href: "/metrics", label: "Niche Breakdown", icon: BarChart3 },
+  { href: "/niche", label: "Niche Performance", icon: Telescope },
 ]
 
 /**

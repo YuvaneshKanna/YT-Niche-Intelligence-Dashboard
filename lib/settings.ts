@@ -12,7 +12,15 @@
 // this origin, so an XSS bug on this page could exfiltrate a key. Treat these
 // as revocable credentials and rotate them if the machine is shared.
 
-export type ChatMode = "subscription" | "api"
+/**
+ * Which backend answers.
+ *
+ * "subscription" and "api" are Claude, and need nothing running anywhere.
+ * "chatgpt" and "gateway" are reached through the bridge server, so they are
+ * only available once that is deployed and BRIDGE_URL is set in Vercel — see
+ * bridge/README.md.
+ */
+export type ChatMode = "subscription" | "api" | "chatgpt" | "gateway"
 
 export interface DashboardSettings {
   /** Which backend the chat panel should use. */
@@ -21,6 +29,10 @@ export interface DashboardSettings {
   anthropicApiKey: string
   /** Model override for the API path. Empty means the server default. */
   anthropicModel: string
+  /** Model for ChatGPT mode. Empty means whatever the account defaults to. */
+  chatgptModel: string
+  /** Model for gateway mode. Empty means whatever BRIDGE_OMNIROUTE_MODEL names. */
+  gatewayModel: string
   /**
    * Claude Code OAuth token from `claude setup-token`.
    *
@@ -43,6 +55,8 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
   chatMode: "subscription",
   anthropicApiKey: "",
   anthropicModel: "",
+  chatgptModel: "",
+  gatewayModel: "",
   claudeOauthToken: "",
   bridgeSecret: "",
   chatAccessToken: "",
@@ -60,6 +74,79 @@ export const CHAT_MODELS = [
 
 /** Effort levels the CLI's --effort flag accepts, low to max. */
 export const CHAT_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
+
+/** The backends the chat panel offers, in the order shown. */
+export const CHAT_PROVIDERS: { id: ChatMode; label: string }[] = [
+  { id: "subscription", label: "Claude" },
+  { id: "api", label: "Anthropic API key" },
+  { id: "chatgpt", label: "ChatGPT" },
+  { id: "gateway", label: "OmniRoute" },
+]
+
+/**
+ * Models a ChatGPT plan exposes through Codex.
+ *
+ * Taken from the account's own model list, minus two that are not chat models:
+ * a reserve-capacity entry and the automated review model. Leaving the picker
+ * on "Default model" lets the account choose, which is the safest option when
+ * this list drifts.
+ */
+export const CHATGPT_MODELS = [
+  { id: "gpt-6-astra", label: "GPT-6 Astra" },
+  { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+  { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+  { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+  { id: "gpt-5.5", label: "GPT-5.5" },
+] as const
+
+/**
+ * Which models the model picker should offer for a backend.
+ *
+ * The gateway is empty here on purpose: its models are whichever providers were
+ * configured inside it, so the list has to be fetched from the running service
+ * (/api/chat/models) rather than hardcoded. The panel merges that in.
+ */
+export function modelsFor(mode: ChatMode): readonly { id: string; label: string }[] {
+  if (mode === "chatgpt") return CHATGPT_MODELS
+  if (mode === "gateway") return []
+  return CHAT_MODELS
+}
+
+/**
+ * Effort only means anything where the backend exposes a reasoning setting.
+ *
+ * The gateway counts: `reasoning_effort` is a standard field, and it forwards it
+ * to whichever provider it routes to. A provider that has no such setting
+ * ignores it, which is a better outcome than hiding the control.
+ */
+export function supportsEffort(mode: ChatMode): boolean {
+  return mode !== "api"
+}
+
+/**
+ * The model chosen for one backend.
+ *
+ * Kept per backend rather than as a single value: the names do not transfer, so
+ * switching provider and back should not leave a Claude model selected on a
+ * ChatGPT request.
+ */
+export function modelFor(s: DashboardSettings, mode: ChatMode): string {
+  if (mode === "api") return s.anthropicModel
+  if (mode === "chatgpt") return s.chatgptModel
+  if (mode === "gateway") return s.gatewayModel
+  return s.chatModel
+}
+
+export function withModel(
+  s: DashboardSettings,
+  mode: ChatMode,
+  value: string
+): DashboardSettings {
+  if (mode === "api") return { ...s, anthropicModel: value }
+  if (mode === "chatgpt") return { ...s, chatgptModel: value }
+  if (mode === "gateway") return { ...s, gatewayModel: value }
+  return { ...s, chatModel: value }
+}
 
 const STORAGE_KEY = "yt-dashboard-settings"
 

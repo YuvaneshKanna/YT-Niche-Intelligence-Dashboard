@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { AlertTriangle, Check, Copy, Eye, EyeOff, Info, Key, RefreshCw, Sparkles, Trash2, X } from "lucide-react"
+import { AlertTriangle, Bot, Check, Copy, Eye, EyeOff, Info, Key, RefreshCw, Route, Sparkles, Trash2, X } from "lucide-react"
 import {
   clearSettings,
   DEFAULT_SETTINGS,
@@ -18,7 +18,23 @@ function generateSecret(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
 }
 
+/** One backend on the bridge server, as /api/chat/status reports it. */
+interface BackendStatus {
+  id: string
+  label: string
+  ready: boolean
+  detail: string
+  refreshAgeDays?: number
+}
+
 interface ChatStatus {
+  /** The bridge server that fronts ChatGPT and OmniRoute. */
+  aiBridge: {
+    configured: boolean
+    reachable: boolean | null
+    backends: BackendStatus[]
+    error: string | null
+  }
   oauthTokenSet: boolean
   /** Which backend a subscription-mode message actually takes. */
   subscriptionBackend: "in-function" | "bridge" | "none"
@@ -127,6 +143,20 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 title="Anthropic API key"
                 detail="Calls the API directly. Works without hosting anything."
               />
+              <ModeCard
+                active={settings.chatMode === "chatgpt"}
+                onClick={() => set("chatMode", "chatgpt" as ChatMode)}
+                icon={<Bot className="h-4 w-4" />}
+                title="ChatGPT subscription"
+                detail="Answers on your ChatGPT plan, through the bridge server. Replies arrive all at once rather than word by word."
+              />
+              <ModeCard
+                active={settings.chatMode === "gateway"}
+                onClick={() => set("chatMode", "gateway" as ChatMode)}
+                icon={<Route className="h-4 w-4" />}
+                title="OmniRoute gateway"
+                detail="The backup that keeps working when the plans above hit their limits. Billed per token against the keys you put in it."
+              />
             </div>
           </section>
 
@@ -134,7 +164,16 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             <SetupChecklist status={status} checking={checking} onRecheck={checkStatus} />
           )}
 
-          {settings.chatMode === "api" ? (
+          {(settings.chatMode === "chatgpt" || settings.chatMode === "gateway") && (
+            <BridgeChecklist
+              status={status}
+              checking={checking}
+              onRecheck={checkStatus}
+              backendId={settings.chatMode === "chatgpt" ? "codex" : "omniroute"}
+            />
+          )}
+
+          {settings.chatMode === "api" && (
             <section className="space-y-3">
               <Field
                 label="Anthropic API key"
@@ -154,7 +193,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 placeholder="claude-opus-5"
               />
             </section>
-          ) : (
+          )}
+
+          {settings.chatMode === "subscription" && (
             <section className="space-y-3">
               <Field
                 label="Claude Code OAuth token"
@@ -174,9 +215,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             <Field
               label="Chat access token (optional)"
               hint={
-                settings.chatMode === "subscription"
-                  ? "Gates who can use chat at all. Recommended in subscription mode: every answer spends YOUR Claude limits, so without this anyone who finds the dashboard URL can use them. Set CHAT_ACCESS_TOKEN in Vercel to the same value. Leave blank if you have not set it."
-                  : "Gates who can use chat at all. Usually unnecessary in API-key mode, since each person supplies their own key — unless the deployment also sets a fallback ANTHROPIC_API_KEY. Leave blank if you have not set CHAT_ACCESS_TOKEN in Vercel."
+                settings.chatMode === "api"
+                  ? "Gates who can use chat at all. Usually unnecessary in API-key mode, since each person supplies their own key — unless the deployment also sets a fallback ANTHROPIC_API_KEY. Leave blank if you have not set CHAT_ACCESS_TOKEN in Vercel."
+                  : "Gates who can use chat at all. Strongly recommended: every answer spends YOUR plan's limits, so without this anyone who finds the dashboard URL can use them. Set CHAT_ACCESS_TOKEN in Vercel to the same value. Leave blank if you have not set it."
               }
               value={settings.chatAccessToken}
               onChange={(v) => set("chatAccessToken", v)}
@@ -399,6 +440,117 @@ function TokenSetup({ token }: { token: string }) {
         running <code className="rounded bg-muted px-1">claude setup-token</code> again.
       </p>
     </div>
+  )
+}
+
+/**
+ * Live view of the bridge server, for the modes that depend on it.
+ *
+ * A bridge is a second machine, and the thing that makes a second machine
+ * tolerable is being able to see it from here. Three failures look identical
+ * from the chat panel — never configured, configured but down, running but
+ * signed out — and each has a different fix, so each gets its own row.
+ */
+function BridgeChecklist({
+  status,
+  checking,
+  onRecheck,
+  backendId,
+}: {
+  status: ChatStatus | null
+  checking: boolean
+  onRecheck: () => void
+  backendId: string
+}) {
+  const bridge = status?.aiBridge
+  const backend = bridge?.backends.find((b) => b.id === backendId) ?? null
+
+  // A login that has not refreshed in a long time is not broken yet, but it is
+  // the thing that will break next, so it is worth showing before it does.
+  const staleLogin =
+    backend && typeof backend.refreshAgeDays === "number" && backend.refreshAgeDays > 21
+
+  const rows: { label: string; done: boolean | null; note: string }[] = [
+    {
+      label: "BRIDGE_URL and BRIDGE_TOKEN set in Vercel",
+      done: status ? bridge?.configured ?? false : null,
+      note: bridge?.configured
+        ? "the dashboard knows where the bridge is"
+        : "deploy the bridge first — see bridge/README.md, then add both variables and redeploy",
+    },
+    {
+      label: "Bridge running and reachable",
+      done: status ? (bridge?.configured ? bridge.reachable : null) : null,
+      note:
+        bridge?.error ??
+        (bridge?.reachable
+          ? "answering on its own domain, over HTTPS"
+          : "nothing to check until the variables above are set"),
+    },
+    {
+      label:
+        backendId === "codex" ? "Signed in to ChatGPT on the bridge" : "OmniRoute gateway running",
+      done: status ? (bridge?.reachable ? backend?.ready ?? false : null) : null,
+      note:
+        backend?.detail ||
+        (backendId === "codex"
+          ? "run `codex login` on the bridge server — README step 4"
+          : "start the omniroute service and add at least one provider key — README step 5"),
+    },
+  ]
+
+  const blocked = rows.some((r) => r.done === false || r.done === null)
+
+  return (
+    <section className="rounded-xl border border-border bg-background p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-foreground">Bridge status</p>
+        <button
+          onClick={onRecheck}
+          disabled={checking}
+          className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3 w-3 ${checking ? "animate-spin" : ""}`} />
+          Re-check
+        </button>
+      </div>
+
+      <ul className="space-y-1">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-start gap-2">
+            {r.done === true ? (
+              <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-emerald-400" />
+            ) : r.done === false ? (
+              <X className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-destructive" />
+            ) : (
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+            )}
+            <div className="min-w-0">
+              <p
+                className={`text-[11px] ${r.done === true ? "text-muted-foreground" : "text-foreground"}`}
+              >
+                {r.label}
+              </p>
+              <p className="text-[10px] leading-relaxed text-muted-foreground">{r.note}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {staleLogin && (
+        <p className="mt-2 border-t border-border pt-2 text-[10px] leading-relaxed text-amber-200/90">
+          The ChatGPT login on the bridge last refreshed {backend?.refreshAgeDays} days ago. It still
+          works, but if answers start failing, signing in again is the first thing to try.
+        </p>
+      )}
+
+      {blocked && !staleLogin && (
+        <p className="mt-2 border-t border-border pt-2 text-[10px] leading-relaxed text-amber-200/90">
+          Chat works in this mode once every row is green. Until then, switch back to Claude
+          subscription mode — it needs nothing running anywhere.
+        </p>
+      )}
+    </section>
   )
 }
 

@@ -1487,11 +1487,11 @@ export function Dashboard() {
               </button>
               <button
                 onClick={() => setShowChat(true)}
-                aria-label="Ask Claude about this roster"
+                aria-label="Ask AI about this roster"
                 className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                Ask Claude
+                Ask AI
               </button>
             </div>
 

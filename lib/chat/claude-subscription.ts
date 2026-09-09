@@ -237,6 +237,90 @@ export function streamFromSubscription(args: SubscriptionChatArgs): Response {
   })
 }
 
+export interface SubscriptionOnceArgs {
+  prompt: string
+  systemRules: string
+  model?: string
+  signal?: AbortSignal
+}
+
+/**
+ * One turn, collected into a string instead of streamed.
+ *
+ * The niche ideation analysis wants a single structured answer, not a typing
+ * effect — the caller parses it and renders panels. Sharing this file with
+ * `streamFromSubscription` keeps both paths on the same locked-down options:
+ * no tools, no filesystem, and only the subscription token in the child's
+ * environment, so an unrelated env var cannot redirect billing.
+ *
+ * Deliberately stateless: no session is stored, because there is no follow-up
+ * turn to resume.
+ */
+export async function runSubscriptionOnce(args: SubscriptionOnceArgs): Promise<string> {
+  const { prompt, systemRules, model, signal } = args
+
+  try {
+    mkdirSync(CONFIG_DIR, { recursive: true })
+  } catch {
+    // The SDK creates what it needs on demand; a failure here is not fatal.
+  }
+
+  const abort = new AbortController()
+  const onAbort = () => abort.abort()
+  signal?.addEventListener("abort", onAbort, { once: true })
+  const timer = setTimeout(() => abort.abort(), TIMEOUT_MS)
+
+  const options: Options = {
+    allowedTools: [],
+    permissionMode: "dontAsk",
+    settingSources: [],
+    systemPrompt: {
+      type: "preset",
+      preset: "claude_code",
+      append: systemRules,
+      excludeDynamicSections: true,
+    },
+    cwd: RUNTIME_DIR,
+    executable: "node",
+    abortController: abort,
+    env: {
+      PATH: process.env.PATH ?? "",
+      HOME: RUNTIME_DIR,
+      CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "",
+      CLAUDE_CONFIG_DIR: CONFIG_DIR,
+    },
+  }
+  if (model) options.model = model
+
+  let text = ""
+  try {
+    for await (const message of query({ prompt, options }) as AsyncIterable<SDKMessage>) {
+      if (message.type === "assistant") {
+        for (const block of message.message.content) {
+          if (block.type === "text") text += block.text
+        }
+      }
+      if (message.type === "result") {
+        if (message.is_error) {
+          const detail =
+            message.subtype === "success" ? message.result : `run failed (${message.subtype})`
+          throw new Error(authHint(String(detail)))
+        }
+        break
+      }
+    }
+  } catch (err: unknown) {
+    if (abort.signal.aborted) throw new Error(`Timed out after ${TIMEOUT_MS}ms`)
+    throw err instanceof Error ? new Error(authHint(err.message)) : err
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener("abort", onAbort)
+  }
+
+  if (!text.trim()) throw new Error("Claude ended the turn without a reply.")
+  return text
+}
+
 /** A rejected token is the one failure worth naming precisely — it has a fix. */
 function authHint(message: string): string {
   return /oauth|401|authenticat/i.test(message)

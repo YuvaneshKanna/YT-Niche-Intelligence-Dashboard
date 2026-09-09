@@ -1,0 +1,26 @@
+# OmniRoute, as a service that survives a restart.
+#
+# It is normally run by hand from a terminal, which is why it has been dying
+# with the shell. Installing it at build time rather than at start time means a
+# restart is fast and does not depend on npm being reachable.
+FROM node:22-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g omniroute
+
+# Provider keys and settings live here, so it has to be a volume. Losing it
+# means setting the gateway up again in the browser.
+ENV HOME=/data
+RUN mkdir -p /data && chown -R node:node /data
+VOLUME ["/data"]
+
+USER node
+EXPOSE 20128
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:20128/api/monitoring/health || exit 1
+
+CMD ["omniroute"]

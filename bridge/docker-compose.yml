@@ -1,0 +1,77 @@
+# The AI bridge stack.
+#
+# Deploy this to /opt/ai-bridge on the server — a directory of its own, separate
+# from anything already running there. It shares nothing with the n8n stack and
+# can be stopped, rebuilt or removed without touching it.
+#
+#   cd /opt/ai-bridge
+#   cp .env.example .env      # then fill in .env
+#   docker compose up -d --build
+#
+# Only Caddy is reachable from the internet. The bridge and the gateway talk to
+# each other on a private network and publish no ports of their own.
+
+name: ai-bridge
+
+services:
+  bridge:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      OMNIROUTE_URL: http://omniroute:20128
+    volumes:
+      # The ChatGPT login. See README — `codex login` writes here, and the
+      # refresh token rotates in place, so this must outlive the container.
+      - codex-home:/data/codex
+    networks: [internal]
+
+  # Opt-in, and deliberately not a dependency of the bridge.
+  #
+  # OmniRoute is the fallback tier, useful only once provider keys are configured
+  # inside it, and it is the heaviest thing in this stack. On a small host it
+  # must be possible to run ChatGPT without it — and a gateway that fails to
+  # start must never be able to take the bridge down with it.
+  #
+  #   docker compose --profile omniroute up -d
+  omniroute:
+    profiles: ["omniroute"]
+    build:
+      context: .
+      dockerfile: Dockerfile.omniroute
+    restart: unless-stopped
+    volumes:
+      - omniroute-data:/data
+    # Bound to localhost only. The gateway has an admin UI and must never be
+    # exposed publicly; reach it from your own machine with an SSH tunnel:
+    #   ssh -L 20128:localhost:20128 you@your-server
+    # then open http://localhost:20128
+    ports:
+      - "127.0.0.1:20128:20128"
+    networks: [internal]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [internal]
+    depends_on:
+      bridge:
+        condition: service_started
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  codex-home:
+  omniroute-data:
+  caddy-data:
+  caddy-config:
