@@ -142,6 +142,21 @@ const server = http.createServer(async (req, res) => {
     // health check and a load balancer poll, neither of which holds a token.
     if (route === "GET /livez") return sendJson(res, 200, { ok: true })
 
+    // Somebody opened this in a browser. A bare 401 there reads as a broken
+    // service rather than a working one refusing an anonymous caller, so the
+    // front page says what this is and where to look instead. It reveals
+    // nothing: the service's existence is not the secret, the token is.
+    if (route === "GET /" || route === "GET /favicon.ico") {
+      return sendJson(res, 200, {
+        service: "ai-bridge",
+        status: "running",
+        note:
+          "This is an API, not a website. The dashboard calls it with a token; " +
+          "a browser has none, so every other path will answer 401. That is correct.",
+        liveness: "/livez",
+      })
+    }
+
     const auth = authorize(req)
     if (!auth.ok) {
       log({ event: "denied", route, reason: auth.reason })
