@@ -85,7 +85,14 @@ OmniRoute is the backup that keeps working when the ChatGPT and Claude plans hit
 their limits. It needs at least one provider key to be worth anything, so it is
 useless until you configure it — and the dashboard works fine without it.
 
-When you want it, tunnel to its admin page from your own computer:
+It does not start by default. Start it when you want it:
+
+```bash
+cd /opt/ai-bridge
+docker compose --profile omniroute up -d
+```
+
+Then tunnel to its admin page from your own computer:
 
 ```bash
 ssh -L 20128:localhost:20128 you@your-server

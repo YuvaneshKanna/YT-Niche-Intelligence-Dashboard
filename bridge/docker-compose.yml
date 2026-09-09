@@ -25,11 +25,17 @@ services:
       # refresh token rotates in place, so this must outlive the container.
       - codex-home:/data/codex
     networks: [internal]
-    depends_on:
-      omniroute:
-        condition: service_started
 
+  # Opt-in, and deliberately not a dependency of the bridge.
+  #
+  # OmniRoute is the fallback tier, useful only once provider keys are configured
+  # inside it, and it is the heaviest thing in this stack. On a small host it
+  # must be possible to run ChatGPT without it — and a gateway that fails to
+  # start must never be able to take the bridge down with it.
+  #
+  #   docker compose --profile omniroute up -d
   omniroute:
+    profiles: ["omniroute"]
     build:
       context: .
       dockerfile: Dockerfile.omniroute
