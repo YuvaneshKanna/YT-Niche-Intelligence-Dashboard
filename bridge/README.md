@@ -95,6 +95,17 @@ Then open <http://localhost:20128> in your browser, set an admin password, and
 add provider keys under Providers. It is deliberately not reachable from the
 internet.
 
+Once it is configured, list the models you actually want to choose between in
+`.env` and restart the bridge:
+
+```
+OMNIROUTE_MODELS=anthropic/claude-sonnet-5,openai/gpt-4o,google/gemini-2.5-pro
+```
+
+Those become the dashboard's OmniRoute model dropdown. Without this the
+dropdown shows everything the gateway reports, which can be hundreds of entries
+and is not usable as a dropdown.
+
 ### 6. Point the dashboard at it
 
 In Vercel, add two environment variables to the dashboard project and redeploy:

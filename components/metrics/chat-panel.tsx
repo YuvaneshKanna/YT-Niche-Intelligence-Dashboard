@@ -98,7 +98,10 @@ export function ChatPanel({
   const [effort, setEffort] = useState(() => loadSettings().chatEffort)
   const [usage, setUsage] = useState<RateLimitInfo | null>(null)
 
-  const models = modelsFor(mode)
+  // The gateway's models are whatever it was configured to route to, so they are
+  // fetched rather than known. Every other backend has a fixed list.
+  const [gatewayModels, setGatewayModels] = useState<{ id: string; label: string }[]>([])
+  const models = mode === "gateway" ? gatewayModels : modelsFor(mode)
 
   const chatIdRef = useRef<string>("")
   const abortRef = useRef<AbortController | null>(null)
@@ -120,6 +123,26 @@ export function ChatPanel({
     setModel(modelFor(s, s.chatMode))
     setEffort(s.chatEffort)
   }, [open])
+
+  // Asked once per opening, and again on switching to the gateway. An empty
+  // answer is normal — the bridge may not be set up, or no provider configured
+  // inside it yet — and simply leaves the picker on its default entry.
+  useEffect(() => {
+    if (!open || mode !== "gateway") return
+    let cancelled = false
+    fetch("/api/chat/models?provider=gateway")
+      .then((r) => r.json())
+      .then((j: { models?: string[] }) => {
+        if (cancelled) return
+        setGatewayModels((j.models ?? []).map((id) => ({ id, label: id })))
+      })
+      .catch(() => {
+        if (!cancelled) setGatewayModels([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, mode])
 
   useEffect(() => {
     if (!open) return
@@ -312,26 +335,21 @@ export function ChatPanel({
               ))}
             </Picker>
 
-            {/* Hidden rather than shown empty for the gateway, whose models are
-                whatever was configured inside it — a picker we cannot populate
-                is worse than no picker. */}
-            {models.length > 0 && (
-              <Picker value={model} onChange={updateModel} label="Model">
-                <option value="">Default model</option>
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </Picker>
-            )}
+            <Picker value={model} onChange={updateModel} label="Model">
+              <option value="">Default model</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </Picker>
 
             {supportsEffort(mode) && (
               <Picker value={effort} onChange={updateEffort} label="Effort">
-                <option value="">Default effort</option>
+                <option value="">Default</option>
                 {CHAT_EFFORTS.map((lvl) => (
                   <option key={lvl} value={lvl}>
-                    {`${lvl} effort`}
+                    {lvl}
                   </option>
                 ))}
               </Picker>

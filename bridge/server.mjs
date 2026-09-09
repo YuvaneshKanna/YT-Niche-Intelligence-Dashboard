@@ -153,6 +153,21 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (route === "GET /v1/models") {
+      // Without ?backend= this lists the backends themselves, which is what an
+      // OpenAI client expects to find here. With it, the named backend reports
+      // the models it can actually reach — the only way to know, for a gateway
+      // whose model list is whatever someone configured inside it.
+      const wanted = url.searchParams.get("backend")
+      if (wanted) {
+        const backend = backends.get(wanted)
+        if (!backend) return sendError(res, 404, `No backend named "${wanted}".`, "unknown_backend")
+        const ids = backend.listModels ? await backend.listModels() : []
+        return sendJson(res, 200, {
+          object: "list",
+          data: ids.map((id) => ({ id, object: "model", owned_by: backend.id })),
+        })
+      }
+
       return sendJson(res, 200, {
         object: "list",
         data: [...backends.values()].map((b) => ({

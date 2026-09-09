@@ -31,6 +31,8 @@ export interface DashboardSettings {
   anthropicModel: string
   /** Model for ChatGPT mode. Empty means whatever the account defaults to. */
   chatgptModel: string
+  /** Model for gateway mode. Empty means whatever BRIDGE_OMNIROUTE_MODEL names. */
+  gatewayModel: string
   /**
    * Claude Code OAuth token from `claude setup-token`.
    *
@@ -54,6 +56,7 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
   anthropicApiKey: "",
   anthropicModel: "",
   chatgptModel: "",
+  gatewayModel: "",
   claudeOauthToken: "",
   bridgeSecret: "",
   chatAccessToken: "",
@@ -74,10 +77,10 @@ export const CHAT_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
 
 /** The backends the chat panel offers, in the order shown. */
 export const CHAT_PROVIDERS: { id: ChatMode; label: string }[] = [
-  { id: "subscription", label: "Claude subscription" },
+  { id: "subscription", label: "Claude" },
   { id: "api", label: "Anthropic API key" },
-  { id: "chatgpt", label: "ChatGPT subscription" },
-  { id: "gateway", label: "OmniRoute gateway" },
+  { id: "chatgpt", label: "ChatGPT" },
+  { id: "gateway", label: "OmniRoute" },
 ]
 
 /**
@@ -96,18 +99,28 @@ export const CHATGPT_MODELS = [
   { id: "gpt-5.5", label: "GPT-5.5" },
 ] as const
 
-/** Which models the model picker should offer for a backend. */
+/**
+ * Which models the model picker should offer for a backend.
+ *
+ * The gateway is empty here on purpose: its models are whichever providers were
+ * configured inside it, so the list has to be fetched from the running service
+ * (/api/chat/models) rather than hardcoded. The panel merges that in.
+ */
 export function modelsFor(mode: ChatMode): readonly { id: string; label: string }[] {
   if (mode === "chatgpt") return CHATGPT_MODELS
-  // The gateway's models depend on which providers were configured inside it,
-  // which the browser has no way to know. It uses BRIDGE_OMNIROUTE_MODEL.
   if (mode === "gateway") return []
   return CHAT_MODELS
 }
 
-/** Effort only means anything where the backend exposes a reasoning setting. */
+/**
+ * Effort only means anything where the backend exposes a reasoning setting.
+ *
+ * The gateway counts: `reasoning_effort` is a standard field, and it forwards it
+ * to whichever provider it routes to. A provider that has no such setting
+ * ignores it, which is a better outcome than hiding the control.
+ */
 export function supportsEffort(mode: ChatMode): boolean {
-  return mode === "subscription" || mode === "chatgpt"
+  return mode !== "api"
 }
 
 /**
@@ -120,7 +133,7 @@ export function supportsEffort(mode: ChatMode): boolean {
 export function modelFor(s: DashboardSettings, mode: ChatMode): string {
   if (mode === "api") return s.anthropicModel
   if (mode === "chatgpt") return s.chatgptModel
-  if (mode === "gateway") return ""
+  if (mode === "gateway") return s.gatewayModel
   return s.chatModel
 }
 
@@ -131,7 +144,7 @@ export function withModel(
 ): DashboardSettings {
   if (mode === "api") return { ...s, anthropicModel: value }
   if (mode === "chatgpt") return { ...s, chatgptModel: value }
-  if (mode === "gateway") return s
+  if (mode === "gateway") return { ...s, gatewayModel: value }
   return { ...s, chatModel: value }
 }
 

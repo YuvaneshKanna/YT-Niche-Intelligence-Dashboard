@@ -64,6 +64,41 @@ export const omnirouteBackend = {
     return value
   },
 
+  /**
+   * The models the picker should offer for this gateway.
+   *
+   * OMNIROUTE_MODELS is the answer when it is set: the gateway can reach
+   * hundreds of models, and a dropdown of hundreds is not a dropdown. Naming the
+   * handful worth choosing between keeps the list short and deliberate.
+   *
+   * Without it, the gateway is asked what it can reach. That is the honest
+   * default — whoever configured it decided the list — but it is only pleasant
+   * to use when the gateway itself exposes a small set.
+   */
+  async listModels() {
+    const pinned = (process.env.OMNIROUTE_MODELS || "")
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean)
+    if (pinned.length) return pinned
+
+    try {
+      const res = await fetch(`${BASE_URL}/v1/models`, {
+        headers: headers(),
+        signal: AbortSignal.timeout(5000),
+      })
+      if (!res.ok) return []
+      const body = await res.json()
+      return (body?.data ?? [])
+        .map((m) => (typeof m === "string" ? m : m?.id))
+        .filter((id) => typeof id === "string" && id.length > 0)
+    } catch {
+      // A gateway that is down has no models to report. The health endpoint is
+      // where that is diagnosed; this one just returns nothing.
+      return []
+    }
+  },
+
   async run({ model, messages, reasoningEffort, signal, onDelta }) {
     let res
     try {
