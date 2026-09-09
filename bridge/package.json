@@ -1,0 +1,17 @@
+{
+  "name": "ai-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAI-compatible front door for backends that cannot run in a serverless function.",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "^0.153.4"
+  }
+}

@@ -1,9 +1,13 @@
-import Anthropic from "@anthropic-ai/sdk"
 import { NextRequest, NextResponse } from "next/server"
 import { MetricsConfigError } from "@/lib/metrics/db"
 import { readNicheCorpus } from "@/lib/metrics/neon"
 import { buildIdeation, scoreCorpus } from "@/lib/niche/ideation"
-import { runSubscriptionOnce, subscriptionChatReady } from "@/lib/chat/claude-subscription"
+import {
+  buildChain,
+  readChatMode,
+  readProviderInit,
+  selectOnceProvider,
+} from "@/lib/chat/router"
 import type { VideoType } from "@/lib/metrics/types"
 
 // The semantic half of the ideation layer.
@@ -169,28 +173,20 @@ export async function POST(request: NextRequest) {
   }
 
   // Same bring-your-own-key contract as /api/chat, so Settings configures both.
-  const mode = request.headers.get("x-chat-mode") === "api" ? "api" : "subscription"
-  const clientKey = request.headers.get("x-anthropic-key")?.trim() || ""
-  const apiKey = clientKey || process.env.ANTHROPIC_API_KEY || ""
-  const model =
-    request.headers.get("x-anthropic-model")?.trim() || process.env.ANTHROPIC_MODEL || "claude-opus-5"
+  // The bridge has no single-answer surface, so it is left out of the chain here.
+  const chain = buildChain(readChatMode(request.headers.get("x-chat-mode")), {
+    apiKey: request.headers.get("x-anthropic-key")?.trim() || process.env.ANTHROPIC_API_KEY || "",
+    apiModel:
+      request.headers.get("x-anthropic-model")?.trim() ||
+      process.env.ANTHROPIC_MODEL ||
+      "claude-opus-5",
+  })
 
-  if (mode === "api" && !apiKey) {
+  const selected = selectOnceProvider(chain)
+  if (!selected.ok) {
     return NextResponse.json(
-      { success: false, error: "No Anthropic API key. Add one in Settings, or switch to subscription mode.", code: "NO_KEY" },
-      { status: 503 }
-    )
-  }
-  if (mode === "subscription" && !subscriptionChatReady()) {
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Subscription mode is not configured. Run `claude setup-token` and set CLAUDE_CODE_OAUTH_TOKEN, " +
-          "or switch to API mode in Settings.",
-        code: "NO_SUBSCRIPTION",
-      },
-      { status: 503 }
+      { success: false, error: selected.unavailable.error, code: selected.unavailable.code },
+      { status: selected.unavailable.status }
     )
   }
 
@@ -210,26 +206,12 @@ export async function POST(request: NextRequest) {
 
     const prompt = buildPrompt(group, videoType, ideation, topTitles, bottomTitles)
 
-    let raw: string
-    if (mode === "api") {
-      const client = new Anthropic({ apiKey })
-      const response = await client.messages.create({
-        model,
-        max_tokens: 4000,
-        system: SYSTEM_RULES,
-        messages: [{ role: "user", content: prompt }],
-      })
-      raw = response.content
-        .map((b) => (b.type === "text" ? b.text : ""))
-        .join("")
-    } else {
-      raw = await runSubscriptionOnce({
-        prompt,
-        systemRules: SYSTEM_RULES,
-        model: request.headers.get("x-anthropic-model")?.trim() || undefined,
-        signal: request.signal,
-      })
-    }
+    const raw = await selected.provider.once({
+      prompt,
+      systemRules: SYSTEM_RULES,
+      model: request.headers.get("x-anthropic-model")?.trim() || undefined,
+      signal: request.signal,
+    })
 
     const payload = parseJson(raw)
     const generatedAt = new Date().toISOString()

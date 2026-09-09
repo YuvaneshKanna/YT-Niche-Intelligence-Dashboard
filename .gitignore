@@ -27,3 +27,6 @@ node_modules
 # Session/ops notes — reference a live host and a service-account key filename
 .agents/NEXT-SESSION.md
 .agents/stage2-backup-*.md
+
+# The bridge template must be committed; the filled-in .env must not be.
+!bridge/.env.example

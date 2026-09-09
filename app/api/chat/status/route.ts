@@ -5,6 +5,77 @@ import { NextRequest } from "next/server"
 //
 // Deliberately returns booleans only — never the secrets themselves.
 
+/** One backend on the bridge, reduced to what Settings needs to draw a row. */
+interface BackendStatus {
+  id: string
+  label: string
+  ready: boolean
+  detail: string
+  /** Days since the stored login last refreshed, when the backend tracks one. */
+  refreshAgeDays?: number
+}
+
+/**
+ * Asks the bridge how its backends are doing.
+ *
+ * Deliberately a whitelist rather than a passthrough: the bridge reports
+ * filesystem paths and other host detail that is useful in a server log and has
+ * no business on a page anyone with the URL can open.
+ */
+async function probeAiBridge() {
+  const url = (process.env.BRIDGE_URL || "").replace(/\/$/, "")
+  const token = process.env.BRIDGE_TOKEN || ""
+  const configured = Boolean(url && token)
+
+  if (!configured) {
+    return { configured: false, reachable: null, backends: [] as BackendStatus[], error: null }
+  }
+
+  try {
+    const res = await fetch(`${url}/health`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(6000),
+      cache: "no-store",
+    })
+
+    if (!res.ok) {
+      return {
+        configured: true,
+        reachable: false,
+        backends: [] as BackendStatus[],
+        error:
+          res.status === 401
+            ? "The bridge rejected the token. BRIDGE_TOKEN here and in the bridge's .env must match."
+            : `The bridge answered ${res.status}.`,
+      }
+    }
+
+    const body = (await res.json()) as {
+      backends?: Record<string, { label?: string; ready?: boolean; detail?: string; refreshAgeDays?: number | null }>
+    }
+
+    const backends: BackendStatus[] = Object.entries(body.backends ?? {}).map(([id, b]) => ({
+      id,
+      label: b.label ?? id,
+      ready: Boolean(b.ready),
+      detail: b.detail ?? "",
+      ...(typeof b.refreshAgeDays === "number" ? { refreshAgeDays: b.refreshAgeDays } : {}),
+    }))
+
+    return { configured: true, reachable: true, backends, error: null }
+  } catch (err: unknown) {
+    const timedOut = err instanceof Error && err.name === "TimeoutError"
+    return {
+      configured: true,
+      reachable: false,
+      backends: [] as BackendStatus[],
+      error: timedOut
+        ? "The bridge did not answer within 6 seconds. It may be starting up or stopped."
+        : "Could not reach the bridge. Check that it is running and that BRIDGE_URL is correct.",
+    }
+  }
+}
+
 export async function GET(_request: NextRequest) {
   const rawToken = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? ""
   const oauthTokenSet = Boolean(rawToken)
@@ -41,6 +112,7 @@ export async function GET(_request: NextRequest) {
   }
 
   return Response.json({
+    aiBridge: await probeAiBridge(),
     oauthTokenSet,
     tokenShape,
     // Which backend a subscription-mode message will actually take.

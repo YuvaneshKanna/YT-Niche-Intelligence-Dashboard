@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk"
 import { NextRequest } from "next/server"
 import { aggregate } from "@/lib/metrics/aggregate"
 import { MetricsConfigError } from "@/lib/metrics/db"
@@ -12,9 +11,17 @@ import {
   readVideoSnapshots as readVideoNeon,
 } from "@/lib/metrics/neon"
 import { RANGE_DAYS, type MetricsPayload, type RangeKey } from "@/lib/metrics/types"
-import { streamFromSubscription, subscriptionChatReady } from "@/lib/chat/claude-subscription"
+import {
+  buildChain,
+  readChatMode,
+  readProviderInit,
+  selectStreamProvider,
+} from "@/lib/chat/router"
 
 // Chat over the niche metrics.
+//
+// Which backend answers is lib/chat/router.ts's decision — this route only
+// resolves credentials, grounds the turn in the right data, and hands off.
 //
 // Subscription mode runs the Claude Code harness inside this function via the
 // Claude Agent SDK (lib/chat/claude-subscription.ts), authenticated by
@@ -23,7 +30,15 @@ import { streamFromSubscription, subscriptionChatReady } from "@/lib/chat/claude
 //
 // Required env for subscription mode:
 //   CLAUDE_CODE_OAUTH_TOKEN   from `claude setup-token`
+// ChatGPT and OmniRoute answer through the bridge server in bridge/, which is
+// where anything that needs a real machine has to live. Both are off unless
+// BRIDGE_URL and BRIDGE_TOKEN are set.
+//
 // Optional:
+//   BRIDGE_URL                the bridge server, e.g. https://ai-bridge.example.com
+//   BRIDGE_TOKEN              the bearer token from the bridge's .env
+//   BRIDGE_CODEX_MODEL        override the ChatGPT model, e.g. "codex/gpt-5.1-codex"
+//   BRIDGE_OMNIROUTE_MODEL    the gateway model, e.g. "omniroute/openai/gpt-4o"
 //   SANDBOX_CHAT_URL          legacy self-hosted bridge (sandbox/), used only
 //   SANDBOX_SHARED_SECRET     when no OAuth token is set here
 //   CHAT_ACCESS_TOKEN         gate — see the access check below
@@ -174,114 +189,24 @@ function systemRulesFor(page: ChatPage): string {
   return page === "roster" ? ROSTER_SYSTEM_RULES : METRICS_SYSTEM_RULES
 }
 
-/** Streams a reply from the Anthropic API using a caller-supplied key. */
-function streamFromApi(
-  apiKey: string,
-  model: string,
-  systemRules: string,
-  context: string,
-  question: string
-): Response {
-  const client = new Anthropic({ apiKey })
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      const encoder = new TextEncoder()
-      const send = (o: unknown) =>
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(o)}\n\n`))
-
-      try {
-        // The rules and metrics are stable across turns, so they sit before the
-        // cache breakpoint and are billed at the cached rate after turn one.
-        const claude = client.messages.stream({
-          model,
-          max_tokens: 8000,
-          thinking: { type: "adaptive" },
-          output_config: { effort: "medium" },
-          system: [
-            { type: "text", text: systemRules },
-            { type: "text", text: context, cache_control: { type: "ephemeral" } },
-          ],
-          messages: [{ role: "user", content: question }],
-        })
-
-        claude.on("text", (delta) => send({ type: "text", text: delta }))
-
-        const final = await claude.finalMessage()
-        if (final.stop_reason === "refusal") {
-          send({ type: "error", error: "The model declined to answer this request." })
-        }
-        send({
-          type: "done",
-          usage: {
-            input: final.usage.input_tokens,
-            output: final.usage.output_tokens,
-            cacheRead: final.usage.cache_read_input_tokens ?? 0,
-          },
-        })
-      } catch (err: unknown) {
-        let message = err instanceof Error ? err.message : "Chat failed"
-        if (err instanceof Anthropic.AuthenticationError) {
-          message = "That API key was rejected. Check it in Settings."
-        } else if (err instanceof Anthropic.RateLimitError) {
-          message = "Rate limited — try again shortly."
-        }
-        send({ type: "error", error: message })
-      } finally {
-        controller.close()
-      }
-    },
-  })
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    },
-  })
-}
-
 export async function POST(request: NextRequest) {
   // Bring-your-own-key: a key supplied by the caller is used for that request
   // only and never stored. Falls back to a server key if one is configured.
-  const mode = request.headers.get("x-chat-mode") === "api" ? "api" : "subscription"
-  const clientKey = request.headers.get("x-anthropic-key")?.trim() || ""
-  const apiKey = clientKey || process.env.ANTHROPIC_API_KEY || ""
-  const model =
-    request.headers.get("x-anthropic-model")?.trim() ||
-    process.env.ANTHROPIC_MODEL ||
-    "claude-opus-5"
+  const mode = readChatMode(request.headers.get("x-chat-mode"))
 
-  const sandboxUrl = process.env.SANDBOX_CHAT_URL
-  const secret = process.env.SANDBOX_SHARED_SECRET
+  // In-function is the default for Claude: it needs one env var and nothing else
+  // running. The legacy bridge stays available for anyone already on it, but only
+  // as the second link in the chain — otherwise a leftover SANDBOX_CHAT_URL would
+  // silently keep routing chat at a machine the user thought they had retired.
+  const chain = buildChain(mode, readProviderInit(request.headers))
 
-  // In-function is the default: it needs one env var and nothing else running.
-  // The bridge stays available for anyone already on it, but only when no
-  // token is set here — otherwise a leftover SANDBOX_CHAT_URL would silently
-  // keep routing chat at a machine the user thought they had retired.
-  const inFunction = subscriptionChatReady()
-
-  if (mode === "api" && !apiKey) {
+  // Resolved before the body is read and before any data is loaded: a request
+  // with nowhere to go should find that out cheaply.
+  const selected = selectStreamProvider(chain)
+  if (!selected.ok) {
     return json(
-      {
-        error: "No Anthropic API key. Add one in Settings, or switch to subscription mode.",
-        code: "NO_KEY",
-      },
-      503
-    )
-  }
-
-  if (mode === "subscription" && !inFunction && (!sandboxUrl || !secret)) {
-    return json(
-      {
-        error:
-          "Subscription chat is not configured. Run `claude setup-token`, then set the token " +
-          "as CLAUDE_CODE_OAUTH_TOKEN in Vercel (Settings has the exact command) and redeploy. " +
-          "Or switch to API-key mode in Settings.",
-        code: "NO_TOKEN",
-      },
-      503
+      { error: selected.unavailable.error, code: selected.unavailable.code },
+      selected.unavailable.status
     )
   }
 
@@ -345,73 +270,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if (mode === "api") {
-    return streamFromApi(apiKey, model, systemRules, context, question)
-  }
-
-  if (inFunction) {
-    return streamFromSubscription({
-      question,
-      context,
-      systemRules,
-      chatId: body.chatId || crypto.randomUUID(),
-      model: body.model,
-      effort: body.effort,
-      signal: request.signal,
-    })
-  }
-
-  let upstream: Response
-  try {
-    upstream = await fetch(`${(sandboxUrl as string).replace(/\/$/, "")}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-sandbox-secret": secret as string },
-      body: JSON.stringify({
-        question,
-        context,
-        chatId: body.chatId,
-        model: body.model,
-        effort: body.effort,
-      }),
-    })
-  } catch (err: unknown) {
-    return json(
-      {
-        error: `Could not reach the sandbox bridge at ${sandboxUrl}: ${
-          err instanceof Error ? err.message : "network error"
-        }`,
-        code: "SANDBOX_UNREACHABLE",
-      },
-      502
-    )
-  }
-
-  if (!upstream.ok || !upstream.body) {
-    const raw = await upstream.text().catch(() => "")
-
-    // A Cloudflare Quick Tunnel returns its own HTML error page (not the
-    // bridge's) when the tunnel is up but nothing is listening on the other
-    // end — dumping that page verbatim just buries the one useful fact.
-    // Recognise it and say what actually broke instead.
-    const isTunnelErrorPage = raw.trimStart().startsWith("<") && /cloudflare|cf-error/i.test(raw)
-    const detail = isTunnelErrorPage
-      ? "The Cloudflare tunnel answered, but nothing is listening behind it — " +
-        "the bridge (`node server.mjs`) on your machine isn't running right now. " +
-        "Start it again and keep that terminal window open; the tunnel alone " +
-        "being up is not enough."
-      : raw.slice(0, 500)
-
-    return json(
-      { error: `Sandbox bridge returned ${upstream.status}. ${detail}`.trim(), code: "SANDBOX_ERROR" },
-      502
-    )
-  }
-
-  return new Response(upstream.body, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    },
+  return selected.provider.stream({
+    question,
+    context,
+    systemRules,
+    chatId: body.chatId || crypto.randomUUID(),
+    model: body.model,
+    effort: body.effort,
+    signal: request.signal,
   })
 }

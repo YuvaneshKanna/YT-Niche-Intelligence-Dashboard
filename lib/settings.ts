@@ -12,7 +12,15 @@
 // this origin, so an XSS bug on this page could exfiltrate a key. Treat these
 // as revocable credentials and rotate them if the machine is shared.
 
-export type ChatMode = "subscription" | "api"
+/**
+ * Which backend answers.
+ *
+ * "subscription" and "api" are Claude, and need nothing running anywhere.
+ * "chatgpt" and "gateway" are reached through the bridge server, so they are
+ * only available once that is deployed and BRIDGE_URL is set in Vercel — see
+ * bridge/README.md.
+ */
+export type ChatMode = "subscription" | "api" | "chatgpt" | "gateway"
 
 export interface DashboardSettings {
   /** Which backend the chat panel should use. */

@@ -1,0 +1,18 @@
+# TLS is automatic: Caddy obtains and renews a certificate for BRIDGE_DOMAIN,
+# provided the domain's DNS already points at this server and ports 80 and 443
+# are open.
+
+{$BRIDGE_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy bridge:8787 {
+		# Answers stream token by token. Without this, Caddy buffers the
+		# response and the whole reply arrives at once at the end.
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
