@@ -378,7 +378,7 @@ export function NichePerformance() {
             className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground transition-[transform,opacity] duration-150 ease-out hover:opacity-90 active:scale-[0.96]"
           >
             <Sparkles className="h-3.5 w-3.5" />
-            Ask Claude
+            Ask AI
           </button>
         </div>
       </header>

@@ -29,6 +29,8 @@ export interface DashboardSettings {
   anthropicApiKey: string
   /** Model override for the API path. Empty means the server default. */
   anthropicModel: string
+  /** Model for ChatGPT mode. Empty means whatever the account defaults to. */
+  chatgptModel: string
   /**
    * Claude Code OAuth token from `claude setup-token`.
    *
@@ -51,6 +53,7 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
   chatMode: "subscription",
   anthropicApiKey: "",
   anthropicModel: "",
+  chatgptModel: "",
   claudeOauthToken: "",
   bridgeSecret: "",
   chatAccessToken: "",
@@ -68,6 +71,69 @@ export const CHAT_MODELS = [
 
 /** Effort levels the CLI's --effort flag accepts, low to max. */
 export const CHAT_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
+
+/** The backends the chat panel offers, in the order shown. */
+export const CHAT_PROVIDERS: { id: ChatMode; label: string }[] = [
+  { id: "subscription", label: "Claude subscription" },
+  { id: "api", label: "Anthropic API key" },
+  { id: "chatgpt", label: "ChatGPT subscription" },
+  { id: "gateway", label: "OmniRoute gateway" },
+]
+
+/**
+ * Models a ChatGPT plan exposes through Codex.
+ *
+ * Taken from the account's own model list, minus two that are not chat models:
+ * a reserve-capacity entry and the automated review model. Leaving the picker
+ * on "Default model" lets the account choose, which is the safest option when
+ * this list drifts.
+ */
+export const CHATGPT_MODELS = [
+  { id: "gpt-6-astra", label: "GPT-6 Astra" },
+  { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+  { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+  { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+  { id: "gpt-5.5", label: "GPT-5.5" },
+] as const
+
+/** Which models the model picker should offer for a backend. */
+export function modelsFor(mode: ChatMode): readonly { id: string; label: string }[] {
+  if (mode === "chatgpt") return CHATGPT_MODELS
+  // The gateway's models depend on which providers were configured inside it,
+  // which the browser has no way to know. It uses BRIDGE_OMNIROUTE_MODEL.
+  if (mode === "gateway") return []
+  return CHAT_MODELS
+}
+
+/** Effort only means anything where the backend exposes a reasoning setting. */
+export function supportsEffort(mode: ChatMode): boolean {
+  return mode === "subscription" || mode === "chatgpt"
+}
+
+/**
+ * The model chosen for one backend.
+ *
+ * Kept per backend rather than as a single value: the names do not transfer, so
+ * switching provider and back should not leave a Claude model selected on a
+ * ChatGPT request.
+ */
+export function modelFor(s: DashboardSettings, mode: ChatMode): string {
+  if (mode === "api") return s.anthropicModel
+  if (mode === "chatgpt") return s.chatgptModel
+  if (mode === "gateway") return ""
+  return s.chatModel
+}
+
+export function withModel(
+  s: DashboardSettings,
+  mode: ChatMode,
+  value: string
+): DashboardSettings {
+  if (mode === "api") return { ...s, anthropicModel: value }
+  if (mode === "chatgpt") return { ...s, chatgptModel: value }
+  if (mode === "gateway") return s
+  return { ...s, chatModel: value }
+}
 
 const STORAGE_KEY = "yt-dashboard-settings"
 

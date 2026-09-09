@@ -23,7 +23,9 @@ export interface OpenAiCompatibleConfig {
   /** Root of the service, without a trailing slash or the /v1 suffix. */
   baseUrl: string
   apiKey: string
-  /** Model name in the far side's own vocabulary. */
+  /** Which backend on the bridge this provider routes to. */
+  backend: string
+  /** Model used when the caller does not pick one, in the far side's vocabulary. */
   model: string
   /** What to tell the user when it is not configured. */
   unavailable: Unavailable
@@ -69,6 +71,14 @@ export function createOpenAiCompatible(config: OpenAiCompatibleConfig): ChatProv
   const endpoint = `${config.baseUrl.replace(/\/$/, "")}/v1/chat/completions`
   const ready = Boolean(config.baseUrl && config.apiKey)
 
+  /**
+   * The bridge routes on a `backend/model` name, so a model chosen in the chat
+   * panel is qualified here rather than in the browser. The browser knows which
+   * model it wants; only this side knows which backend serves it.
+   */
+  const modelName = (requested?: string) =>
+    requested ? `${config.backend}/${requested}` : config.model
+
   async function post(payload: unknown, signal?: AbortSignal, chatId?: string) {
     return fetch(endpoint, {
       method: "POST",
@@ -91,7 +101,7 @@ export function createOpenAiCompatible(config: OpenAiCompatibleConfig): ChatProv
     async stream(args: StreamArgs): Promise<Response> {
       const upstream = await post(
         {
-          model: config.model,
+          model: modelName(args.model),
           messages: messagesFor(args.systemRules, `DATA:\n${args.context}\n\nQUESTION: ${args.question}`),
           stream: true,
           stream_options: { include_usage: true },
@@ -215,7 +225,7 @@ export function createOpenAiCompatible(config: OpenAiCompatibleConfig): ChatProv
     async once(args: OnceArgs): Promise<string> {
       const upstream = await post(
         {
-          model: config.model,
+          model: modelName(args.model),
           messages: messagesFor(args.systemRules, args.prompt),
           stream: false,
         },

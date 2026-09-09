@@ -57,6 +57,7 @@ function createCodexSub(init: ProviderInit): ChatProvider {
   return createOpenAiCompatible({
     id: "codex-sub",
     label: "ChatGPT subscription",
+    backend: "codex",
     baseUrl: init.aiBridgeUrl ?? "",
     apiKey: init.aiBridgeToken ?? "",
     // A bare backend name lets the bridge pick the account's default model.
@@ -69,6 +70,7 @@ function createOmniroute(init: ProviderInit): ChatProvider {
   return createOpenAiCompatible({
     id: "omniroute",
     label: "OmniRoute gateway",
+    backend: "omniroute",
     baseUrl: init.aiBridgeUrl ?? "",
     apiKey: init.aiBridgeToken ?? "",
     model: init.omnirouteModel || "omniroute",

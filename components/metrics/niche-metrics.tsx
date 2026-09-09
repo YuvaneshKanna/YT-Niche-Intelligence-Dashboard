@@ -328,7 +328,7 @@ export function NicheMetrics() {
             className="flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
           >
             <Sparkles className="h-3.5 w-3.5" />
-            Ask Claude
+            Ask AI
           </button>
         </div>
       </header>

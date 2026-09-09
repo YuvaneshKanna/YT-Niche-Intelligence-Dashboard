@@ -5,11 +5,15 @@ import { ArrowUp, Lock, Sparkles, Square, X } from "lucide-react"
 import type { RangeKey } from "@/lib/metrics/types"
 import {
   CHAT_EFFORTS,
-  CHAT_MODELS,
+  CHAT_PROVIDERS,
   chatHeaders,
   type ChatMode,
   loadSettings,
+  modelFor,
+  modelsFor,
   saveSettings,
+  supportsEffort,
+  withModel,
 } from "@/lib/settings"
 
 interface Turn {
@@ -35,11 +39,11 @@ const RATE_LIMIT_LABEL: Record<string, string> = {
 interface ChatPanelProps {
   open: boolean
   onClose: () => void
-  /** Small text next to the "Ask Claude" title — e.g. a niche group + range, or nothing. */
+  /** Small text next to the "Ask AI" title — e.g. a niche group + range, or nothing. */
   subtitle?: string | null
   /** Suggested opening questions, shown until the first message is sent. */
   suggestions: string[]
-  /** One-line description of what data Claude can see on this page. */
+  /** One-line description of what data the AI can see on this page. */
   aboutBlurb: string
   /** Input placeholder. Defaults to the metrics-page phrasing. */
   placeholder?: string
@@ -58,9 +62,10 @@ interface ChatPanelProps {
 /**
  * Chat over this page's own data.
  *
- * The browser talks to /api/chat, which runs Claude Code on your subscription
- * token inside its own function. No model credentials exist in this component,
- * and none are ever sent from the browser in subscription mode.
+ * The browser talks to /api/chat and names a provider; which backend actually
+ * answers is decided server-side (lib/chat/router.ts). No model credentials
+ * exist in this component, and none are ever sent from the browser except the
+ * Anthropic key someone deliberately enters for API mode.
  */
 export function ChatPanel({
   open,
@@ -81,17 +86,19 @@ export function ChatPanel({
   const [accessToken, setAccessToken] = useState(() => loadSettings().chatAccessToken)
   const [needsAccess, setNeedsAccess] = useState(false)
 
-  // Model, effort and live plan usage — the same controls claude.ai shows,
-  // surfaced here instead of buried in Settings. Effort and the usage meter
-  // only mean anything in subscription mode: API mode has no CLI effort
-  // levels and no plan-usage rate limiting (it's pay-per-token).
+  // Provider, model and effort live here rather than in Settings: they are
+  // per-question decisions, and switching backend mid-conversation is the whole
+  // point of having more than one. The usage meter only means anything on a
+  // Claude subscription — an API key is pay-per-token with no plan limit.
   const [mode, setMode] = useState<ChatMode>(() => loadSettings().chatMode)
   const [model, setModel] = useState(() => {
     const s = loadSettings()
-    return s.chatMode === "api" ? s.anthropicModel : s.chatModel
+    return modelFor(s, s.chatMode)
   })
   const [effort, setEffort] = useState(() => loadSettings().chatEffort)
   const [usage, setUsage] = useState<RateLimitInfo | null>(null)
+
+  const models = modelsFor(mode)
 
   const chatIdRef = useRef<string>("")
   const abortRef = useRef<AbortController | null>(null)
@@ -110,7 +117,7 @@ export function ChatPanel({
     if (!open) return
     const s = loadSettings()
     setMode(s.chatMode)
-    setModel(s.chatMode === "api" ? s.anthropicModel : s.chatModel)
+    setModel(modelFor(s, s.chatMode))
     setEffort(s.chatEffort)
   }, [open])
 
@@ -125,8 +132,21 @@ export function ChatPanel({
 
   const updateModel = (value: string) => {
     setModel(value)
+    saveSettings(withModel(loadSettings(), mode, value))
+  }
+
+  /**
+   * Switching backend also restores that backend's own model, because model
+   * names do not transfer between them. The conversation is kept: each backend
+   * holds its own thread, so a follow-up after switching starts a fresh one
+   * there rather than losing what is on screen.
+   */
+  const updateProvider = (value: string) => {
+    const next = value as ChatMode
     const s = loadSettings()
-    saveSettings(mode === "api" ? { ...s, anthropicModel: value } : { ...s, chatModel: value })
+    setMode(next)
+    setModel(modelFor(s, next))
+    saveSettings({ ...s, chatMode: next })
   }
 
   const updateEffort = (value: string) => {
@@ -261,13 +281,13 @@ export function ChatPanel({
       <div className="fixed inset-0 z-40" onClick={onClose} aria-hidden />
       <aside
         role="dialog"
-        aria-label="Chat with Claude about these metrics"
+        aria-label="Ask AI about this page's data"
         className="fixed right-0 top-0 z-50 flex h-screen w-[560px] max-w-[94vw] flex-col border-l border-border bg-card shadow-2xl"
       >
         <header className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Ask Claude</h2>
+            <Sparkles className="h-4 w-4 text-primary" aria-hidden />
+            <h2 className="text-sm font-semibold text-foreground">Ask AI</h2>
             {subtitle && <span className="text-[11px] text-muted-foreground">{subtitle}</span>}
           </div>
           <button
@@ -279,36 +299,42 @@ export function ChatPanel({
           </button>
         </header>
 
-        {/* Model / effort / usage — same controls claude.ai shows, live-switchable mid-conversation. */}
+        {/* Provider / model / effort / usage — live-switchable mid-conversation.
+            No visible field labels: each control's own value names it, so the
+            row stays one line. The accessible names carry the labelling. */}
         <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
-          <div className="flex items-center gap-1.5">
-            <select
-              value={model}
-              onChange={(e) => updateModel(e.target.value)}
-              aria-label="Model"
-              className="rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:border-primary/50"
-            >
-              <option value="">Default model</option>
-              {CHAT_MODELS.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Picker value={mode} onChange={updateProvider} label="Provider">
+              {CHAT_PROVIDERS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
                 </option>
               ))}
-            </select>
-            {mode === "subscription" && (
-              <select
-                value={effort}
-                onChange={(e) => updateEffort(e.target.value)}
-                aria-label="Effort"
-                className="rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:border-primary/50"
-              >
+            </Picker>
+
+            {/* Hidden rather than shown empty for the gateway, whose models are
+                whatever was configured inside it — a picker we cannot populate
+                is worse than no picker. */}
+            {models.length > 0 && (
+              <Picker value={model} onChange={updateModel} label="Model">
+                <option value="">Default model</option>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </Picker>
+            )}
+
+            {supportsEffort(mode) && (
+              <Picker value={effort} onChange={updateEffort} label="Effort">
                 <option value="">Default effort</option>
                 {CHAT_EFFORTS.map((lvl) => (
                   <option key={lvl} value={lvl}>
-                    {lvl}
+                    {`${lvl} effort`}
                   </option>
                 ))}
-              </select>
+              </Picker>
             )}
           </div>
           {mode === "subscription" && usage && <UsageMeter usage={usage} />}
@@ -406,6 +432,39 @@ export function ChatPanel({
 }
 
 /** Plan usage against your Claude subscription's rate limits — the same numbers `/usage` shows. */
+/**
+ * One compact dropdown in the control row.
+ *
+ * These carry no visible label, so `label` becomes the accessible name — a
+ * select without one is announced as nothing but its current value, which does
+ * not say what the value is for. Every option is written to read as its own
+ * label ("Claude subscription", "medium effort") so that sighted users get the
+ * same information from the collapsed control.
+ */
+function Picker({
+  value,
+  onChange,
+  label,
+  children,
+}: {
+  value: string
+  onChange: (value: string) => void
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={label}
+      title={label}
+      className="cursor-pointer rounded-lg border border-border bg-background px-2 py-1.5 text-[11px] text-foreground outline-none transition-colors hover:border-primary/40 focus-visible:border-primary/60 focus-visible:ring-1 focus-visible:ring-primary/40"
+    >
+      {children}
+    </select>
+  )
+}
+
 function UsageMeter({ usage }: { usage: RateLimitInfo }) {
   const pct = Math.round(usage.utilization * 100)
   const color = pct >= 90 ? "bg-destructive" : pct >= 75 ? "bg-amber-500" : "bg-emerald-500"
